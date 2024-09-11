@@ -57,6 +57,44 @@ import io.github.futures4j.util.ThrowingSupplier;
  */
 public class ExtendedFuture<T> extends CompletableFuture<T> {
 
+   public static class Builder<V> {
+
+      private boolean cancellableByDependents = false;
+      private boolean interruptible = true;
+      private @Nullable Executor defaultExecutor;
+      private @Nullable CompletableFuture<V> wrapped;
+
+      protected Builder() {
+      }
+
+      public ExtendedFuture<V> build() {
+         return interruptible //
+               ? new ExtendedFutureInterruptible<>(defaultExecutor, cancellableByDependents, wrapped)
+               : new ExtendedFuture<>(defaultExecutor, cancellableByDependents, wrapped);
+      }
+
+      public Builder<V> withCancellableByDependents(final boolean isCancellableByDependents) {
+         cancellableByDependents = isCancellableByDependents;
+         return this;
+      }
+
+      public Builder<V> withDefaultExecutor(final @Nullable Executor defaultExecutor) {
+         this.defaultExecutor = defaultExecutor;
+         return this;
+      }
+
+      public Builder<V> withInterruptible(final boolean isInterruptible) {
+         interruptible = isInterruptible;
+         return this;
+      }
+
+      @SuppressWarnings("unchecked")
+      public <T extends V> Builder<T> withWrapped(final @Nullable CompletableFuture<T> wrapped) {
+         this.wrapped = (CompletableFuture<V>) wrapped;
+         return (Builder<T>) this;
+      }
+   }
+
    public enum ReadOnlyMode {
 
       /** mutation attempts will throw {@link UnsupportedOperationException} */
@@ -80,6 +118,25 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       return ExtendedFuture.from(CompletableFuture.anyOf(cfs));
    }
 
+   public static <V> Builder<V> builder() {
+      return new Builder<>();
+   }
+
+   public static <V> ExtendedFuture<V> completedFuture(final V value) {
+      final var f = new ExtendedFutureInterruptible<V>(null, false, null);
+      f.complete(value);
+      return f;
+   }
+
+   /**
+    * @param defaultExecutor default executor for subsequent stages
+    */
+   public static <V> ExtendedFuture<V> completedFutureWithDefaultExecutor(final V value, final Executor defaultExecutor) {
+      final var f = new ExtendedFutureInterruptible<V>(defaultExecutor, false, null);
+      f.complete(value);
+      return f;
+   }
+
    /**
     * @return a new {@link ExtendedFuture} with {@link #isCancellableByDependents()} set to {@code false} and {@link #isInterruptible()} set
     *         to {@code true}.
@@ -97,27 +154,20 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    /**
+    * @return a new {@link ExtendedFuture} with {@link #isCancellableByDependents()} set to {@code false} and {@link #isInterruptible()} set
+    *         to {@code false}.
+    */
+   public static <V> ExtendedFuture<V> createNoninterruptible() {
+      return new ExtendedFuture<>(null, false, null);
+   }
+
+   /**
     * @return a new {@link ExtendedFuture} with the given default executor for all subsequent stages and
     *         {@link #isCancellableByDependents()} set to {@code false} and {@link #isInterruptible()} set
     *         to {@code true}.
     */
    public static <V> ExtendedFuture<V> createWithDefaultExecutor(final Executor defaultExecutor) {
       return new ExtendedFutureInterruptible<>(defaultExecutor, false, null);
-   }
-
-   public static <V> ExtendedFuture<V> completedFuture(final V value) {
-      final var f = new ExtendedFutureInterruptible<V>(null, false, null);
-      f.complete(value);
-      return f;
-   }
-
-   /**
-    * @param defaultExecutor default executor for subsequent stages
-    */
-   public static <V> ExtendedFuture<V> completedFutureWithDefaultExecutor(final V value, final Executor defaultExecutor) {
-      final var f = new ExtendedFutureInterruptible<V>(defaultExecutor, false, null);
-      f.complete(value);
-      return f;
    }
 
    public static <V> ExtendedFuture<V> failedFuture(final Throwable ex) {
@@ -142,20 +192,9 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     * {@code false}.
     */
    public static <V> ExtendedFuture<V> from(final CompletableFuture<V> source) {
-      return from(source, false);
-   }
-
-   /**
-    * Derives a {@link ExtendedFuture} from a {@link CompletableFuture}.
-    * <p>
-    * Returns the given future if it is already an instance of {@link ExtendedFuture}.
-    *
-    * @param cancellableByDependents if {@code true} cancelling dependent stages will cancel this future
-    */
-   public static <V> ExtendedFuture<V> from(final CompletableFuture<V> source, final boolean cancellableByDependents) {
       if (source instanceof final ExtendedFuture<V> cf)
          return cf;
-      return new ExtendedFutureInterruptible<>(source.defaultExecutor(), cancellableByDependents, source);
+      return new ExtendedFutureInterruptible<>(source.defaultExecutor(), false, source);
    }
 
    public static ExtendedFuture<@Nullable Void> runAsync(final Runnable runnable) {
@@ -604,6 +643,13 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       return false;
    }
 
+   /**
+    * @return true if this future cannot be completed programmatically throw e.g. {@link #cancel(boolean)} or {@link #complete(Object)}.
+    */
+   public boolean isReadOnly() {
+      return false;
+   }
+
    @Override
    public <V> ExtendedFuture<V> newIncompleteFuture() {
       final var f = new ExtendedFuture<V>(defaultExecutor, cancellableByDependents, null);
@@ -611,13 +657,6 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          f.cancellablePrecedingStages.add(this);
       }
       return f;
-   }
-
-   /**
-    * @return true if this future cannot be completed programmatically throw e.g. {@link #cancel(boolean)} or {@link #complete(Object)}.
-    */
-   public boolean isReadOnly() {
-      return false;
    }
 
    @Override

@@ -11,6 +11,7 @@ import static org.assertj.core.api.Assertions.*;
 
 import java.lang.ref.WeakReference;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
@@ -65,7 +66,8 @@ class ExtendedFutureTest extends AbstractFutureTest {
    @Test
    void testCompletedFuture() {
       testCompletedFuture(ExtendedFuture::create, ExtendedFuture::completedFuture);
-      testCompletedFuture(ExtendedFuture::create, value -> ExtendedFuture.from(CompletableFuture.completedFuture(value), true));
+      testCompletedFuture(ExtendedFuture::create, value -> ExtendedFuture.from(CompletableFuture.completedFuture(value))
+         .asCancellableByDependents(true));
    }
 
    @Test
@@ -93,8 +95,41 @@ class ExtendedFutureTest extends AbstractFutureTest {
    @Test
    void testMultipleStagesCancelDownstream() throws InterruptedException {
       testMultipleStagesCancelDownstream(ExtendedFuture::runAsync, true);
-      testMultipleStagesCancelDownstream(runnable -> ExtendedFuture.from(CompletableFuture.completedFuture(null), true).thenRunAsync(
-         runnable), true);
+      testMultipleStagesCancelDownstream(runnable -> ExtendedFuture.from(CompletableFuture.completedFuture(null)) //
+         .asCancellableByDependents(true) //
+         .thenRunAsync(runnable), true);
+   }
+
+   @Test
+   void testBuilder() {
+
+      {
+         final var future = ExtendedFuture.builder().build();
+
+         assertThat(future).isInstanceOf(ExtendedFutureInterruptible.class);
+         assertThat(future.isInterruptible()).isTrue();
+         assertThat(future.isCancellableByDependents()).isFalse();
+         assertThat(future.defaultExecutor()).isNotNull();
+         assertThat(future.getCompletionState()).isEqualTo(CompletionState.INCOMPLETE);
+      }
+
+      {
+         final Executor customExecutor = Executors.newSingleThreadExecutor();
+         final var wrappedFuture = CompletableFuture.completedFuture("Hello");
+
+         final var future = ExtendedFuture.builder() //
+            .withInterruptible(false) //
+            .withCancellableByDependents(true) //
+            .withDefaultExecutor(customExecutor) //
+            .withWrapped(wrappedFuture) //
+            .build();
+
+         assertThat(future).isNotInstanceOf(ExtendedFutureInterruptible.class);
+         assertThat(future.isInterruptible()).isFalse();
+         assertThat(future.isCancellableByDependents()).isTrue();
+         assertThat(future.defaultExecutor()).isEqualTo(customExecutor);
+         assertThat(future).isCompletedWithValue("Hello");
+      }
    }
 
    @Test
@@ -127,12 +162,13 @@ class ExtendedFutureTest extends AbstractFutureTest {
       awaitFutureState(parent, CANCELLED);
 
       testMultipleStagesCancelUpstream(r -> ExtendedFuture.runAsync(r).asCancellableByDependents(true), true, true);
-      testMultipleStagesCancelUpstream(runnable -> ExtendedFuture.from(CompletableFuture.completedFuture(null), true).thenRunAsync(
-         runnable), true, true);
+      testMultipleStagesCancelUpstream(runnable -> ExtendedFuture.from(CompletableFuture.completedFuture(null)) //
+         .asCancellableByDependents(true) //
+         .thenRunAsync(runnable), true, true);
 
       testMultipleStagesCancelUpstream(r -> ExtendedFuture.runAsync(r).asCancellableByDependents(false), false, true);
-      testMultipleStagesCancelUpstream(runnable -> ExtendedFuture.from(CompletableFuture.completedFuture(null), false).thenRunAsync(
-         runnable), false, true);
+      testMultipleStagesCancelUpstream(runnable -> ExtendedFuture.from(CompletableFuture.completedFuture(null)).thenRunAsync(runnable),
+         false, true);
    }
 
    @Test
@@ -218,7 +254,9 @@ class ExtendedFutureTest extends AbstractFutureTest {
    @Test
    void testSingleStageCancel() throws InterruptedException {
       testSingleStageCancel(ExtendedFuture::runAsync, true);
-      testSingleStageCancel(runnable -> ExtendedFuture.from(CompletableFuture.completedFuture(null), true).thenRunAsync(runnable), true);
+      testSingleStageCancel(runnable -> ExtendedFuture.from(CompletableFuture.completedFuture(null)) //
+         .asCancellableByDependents(true) //
+         .thenRunAsync(runnable), true);
    }
 
    @Test
