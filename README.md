@@ -89,6 +89,15 @@ Java's [java.util.concurrent.CompletableFuture](https://docs.oracle.com/en/java/
    - https://nurkiewicz.com/2015/03/completablefuture-cant-be-interrupted.html
    - https://blog.tremblay.pro/2017/08/supply-async.html
 
+   ```java
+   var myFuture = ExtendedFuture.supplyAsync(...);
+
+   myFuture.cancel(true); // will try to interrupt the async runnable
+
+   var myFutureNonInterruptible = myFuture.asInterruptible(false);
+   myFutureNonInterruptible.cancel(true); // behaves like CompletableFuture.cancel(true) which ignores the boolean value
+   ```
+
 1. It allows dependent stages **cancel preceding stages**. Another limitation of CompletableFuture discussed at:
    - https://stackoverflow.com/questions/25417881/canceling-a-completablefuture-chain
    - https://stackoverflow.com/questions/36727820/cancellation-of-completablefuture-controlled-by-executorservice
@@ -163,12 +172,12 @@ Java's [java.util.concurrent.CompletableFuture](https://docs.oracle.com/en/java/
    ```
 
 1. It allows defining a **default executor** for this future and all subsequent stages. For example via
-   [ExtendedFuture.withDefaultExecutor(Executor)](https://futures4j.github.io/futures4j/javadoc/io/github/futures4j/ExtendedFuture.html#withDefaultExecutor(java.util.concurrent.Executor)) or
-   [new ExtendedFuture(Executor)](https://futures4j.github.io/futures4j/javadoc/io/github/futures4j/ExtendedFuture.html#%3Cinit%3E(java.util.concurrent.Executor))
+   [ExtendedFuture.createWithDefaultExecutor(Executor)](https://futures4j.github.io/futures4j/javadoc/io/github/futures4j/ExtendedFuture.html#createWithDefaultExecutor(java.util.concurrent.Executor)) or
+   [ExtendedFuture.withDefaultExecutor(Executor)](https://futures4j.github.io/futures4j/javadoc/io/github/futures4j/ExtendedFuture.html#withDefaultExecutor(java.util.concurrent.Executor))
 
    ```java
    // use myDefaultExecutor for all subsequent stages of myFuture by default
-   var myFuture = new ExtendendFuture(myDefaultExecutor);
+   var myFuture = ExtendendFuture.createWithDefaultExecutor(myDefaultExecutor);
 
    // use myDefaultExecutor2 for all subsequent stages of myFuture2 by default
    var myFuture2 = myFuture.withDefaultExecutor(myDefaultExecutor2);

@@ -27,7 +27,7 @@ class ExtendedFutureTest extends AbstractFutureTest {
 
    @Test
    void testAsReadOnly_withIgnoreMutationAttempt() {
-      final var originalFuture = new ExtendedFuture<String>();
+      final var originalFuture = ExtendedFuture.create();
       final var readOnlyFuture = originalFuture.asReadOnly(ReadOnlyMode.IGNORE_MUTATION);
 
       assertThat(readOnlyFuture.complete("Hello")).isFalse();
@@ -42,7 +42,7 @@ class ExtendedFutureTest extends AbstractFutureTest {
    @Test
    @SuppressWarnings("null")
    void testAsReadOnly_withThrowOnMutationAttempt() {
-      final var originalFuture = new ExtendedFuture<String>();
+      final var originalFuture = ExtendedFuture.create();
       final var readOnlyFuture = originalFuture.asReadOnly(ReadOnlyMode.THROW_ON_MUTATION);
 
       assertThatThrownBy(() -> readOnlyFuture.complete("Hello")) //
@@ -64,29 +64,29 @@ class ExtendedFutureTest extends AbstractFutureTest {
 
    @Test
    void testCompletedFuture() {
-      testCompletedFuture(ExtendedFuture::new, ExtendedFuture::completedFuture);
-      testCompletedFuture(ExtendedFuture::new, value -> ExtendedFuture.from(CompletableFuture.completedFuture(value), true));
+      testCompletedFuture(ExtendedFuture::create, ExtendedFuture::completedFuture);
+      testCompletedFuture(ExtendedFuture::create, value -> ExtendedFuture.from(CompletableFuture.completedFuture(value), true));
    }
 
    @Test
    void testCopy() {
-      testCopy(ExtendedFuture::new);
+      testCopy(ExtendedFuture::create);
    }
 
    @Test
    void testGetCompletionState() {
-      final var cancelledFuture = new ExtendedFuture<>();
+      final var cancelledFuture = ExtendedFuture.create();
       cancelledFuture.cancel(true);
       assertThat(cancelledFuture.getCompletionState()).isEqualTo(CANCELLED);
 
-      final var exceptionallyCompletedFuture = new ExtendedFuture<>();
+      final var exceptionallyCompletedFuture = ExtendedFuture.create();
       exceptionallyCompletedFuture.completeExceptionally(new RuntimeException("Error"));
       assertThat(exceptionallyCompletedFuture.getCompletionState()).isEqualTo(CompletionState.COMPLETED_EXCEPTIONALLY);
 
       final var completedFuture = ExtendedFuture.completedFuture("Success");
       assertThat(completedFuture.getCompletionState()).isEqualTo(CompletionState.COMPLETED);
 
-      final var incompleteFuture = new ExtendedFuture<>();
+      final var incompleteFuture = ExtendedFuture.create();
       assertThat(incompleteFuture.getCompletionState()).isEqualTo(CompletionState.INCOMPLETE);
    }
 
@@ -99,7 +99,7 @@ class ExtendedFutureTest extends AbstractFutureTest {
 
    @Test
    void testMultipleStagesCancelUpstream() throws InterruptedException {
-      final var parent = new ExtendedFuture<>(false);
+      final var parent = ExtendedFuture.create();
       final var parentCancellable = parent.asCancellableByDependents(true);
       final var parentUncancellable = parentCancellable.asCancellableByDependents(false);
       assertThat(parent.isCancellableByDependents()).isFalse();
@@ -107,17 +107,20 @@ class ExtendedFutureTest extends AbstractFutureTest {
       assertThat(parentUncancellable.isCancellableByDependents()).isFalse();
 
       var dependent = parent.thenRun(() -> { /**/ });
+      assertThat(dependent.isInterruptible()).isTrue();
       dependent.cancel(true);
       awaitFutureState(dependent, CANCELLED);
       awaitFutureState(parent, CompletionState.INCOMPLETE);
 
       dependent = parentUncancellable.thenRun(() -> { /**/ });
+      assertThat(dependent.isInterruptible()).isTrue();
       dependent.cancel(true);
       awaitFutureState(dependent, CANCELLED);
       awaitFutureState(parent, CompletionState.INCOMPLETE);
       awaitFutureState(parentUncancellable, CompletionState.INCOMPLETE);
 
       dependent = parentCancellable.thenRun(() -> { /**/ });
+      assertThat(dependent.isInterruptible()).isTrue();
       dependent.cancel(true);
       awaitFutureState(dependent, CANCELLED);
       awaitFutureState(parentCancellable, CANCELLED);
@@ -142,12 +145,14 @@ class ExtendedFutureTest extends AbstractFutureTest {
             final var nestedStage = ExtendedFuture //
                .runAsync(createTask(stage1NestedState, 1_000)) //
                .asCancellableByDependents(true);
+            assertThat(nestedStage.isInterruptible()).isTrue();
             stage1Nested.set(nestedStage);
             return nestedStage;
          });
 
       awaitTaskStateNOT(stage1NestedState, TaskState.NEW);
 
+      assertThat(stage1.isInterruptible()).isTrue();
       stage1.cancel(true);
 
       awaitFutureState(stage1, CANCELLED);
@@ -220,7 +225,7 @@ class ExtendedFutureTest extends AbstractFutureTest {
    void testWithDefaultExecutor() {
       final var defaultExecutor1 = Executors.newSingleThreadExecutor();
       final var defaultExecutor2 = Executors.newSingleThreadExecutor();
-      final var originalFuture = new ExtendedFuture<String>(defaultExecutor1);
+      final var originalFuture = ExtendedFuture.createWithDefaultExecutor(defaultExecutor1);
       final var sameFuture = originalFuture.withDefaultExecutor(defaultExecutor1);
       final var newFuture = originalFuture.withDefaultExecutor(defaultExecutor2);
 

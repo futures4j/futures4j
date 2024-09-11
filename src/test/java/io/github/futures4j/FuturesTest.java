@@ -33,11 +33,11 @@ class FuturesTest extends AbstractFutureTest {
       Futures.cancelAll((Future<?>[]) null);
       Futures.cancelAll((Collection<? extends Future<?>>) null);
 
-      final var future1 = new ExtendedFuture<>();
-      final var future2 = new ExtendedFuture<>();
-      final var future3 = new ExtendedFuture<>();
-      final var future4 = new ExtendedFuture<>();
-      final var future5 = new ExtendedFuture<>();
+      final var future1 = ExtendedFuture.create();
+      final var future2 = ExtendedFuture.create();
+      final var future3 = ExtendedFuture.create();
+      final var future4 = ExtendedFuture.create();
+      final var future5 = ExtendedFuture.create();
 
       Futures.cancel(future1);
       Futures.cancelAll(future2, future3, null);
@@ -189,10 +189,10 @@ class FuturesTest extends AbstractFutureTest {
 
    @Test
    void testForwardCancellation_Array() {
-      final var sourceFuture = new ExtendedFuture<>();
+      final var sourceFuture = ExtendedFuture.create();
       final var futures = new ArrayList<ExtendedFuture<?>>();
       for (int i = 0; i < 3; i++) {
-         futures.add(new ExtendedFuture<>());
+         futures.add(ExtendedFuture.create());
       }
       Futures.forwardCancellation(sourceFuture, futures.toArray(ExtendedFuture[]::new));
 
@@ -204,10 +204,10 @@ class FuturesTest extends AbstractFutureTest {
 
    @Test
    void testForwardCancellation_List() {
-      final var sourceFuture = new ExtendedFuture<>();
+      final var sourceFuture = ExtendedFuture.create();
       final var futures = new ArrayList<ExtendedFuture<?>>();
       for (int i = 0; i < 3; i++) {
-         futures.add(new ExtendedFuture<>());
+         futures.add(ExtendedFuture.create());
       }
       Futures.forwardCancellation(sourceFuture, futures);
 
@@ -230,7 +230,7 @@ class FuturesTest extends AbstractFutureTest {
       }
       // Test with incomplete future
       {
-         final var future = new ExtendedFuture<>();
+         final var future = ExtendedFuture.create();
 
          final var result = Futures.getOrFallback(future, 100, TimeUnit.MILLISECONDS, "Fallback");
          assertThat(result).isEqualTo("Fallback");
@@ -239,7 +239,7 @@ class FuturesTest extends AbstractFutureTest {
       }
       // Test with cancelled future
       {
-         final var future = new ExtendedFuture<String>();
+         final var future = ExtendedFuture.create();
          future.cancel(true);
 
          final var result = Futures.getOrFallback(future, 100, TimeUnit.MILLISECONDS, "Fallback");
@@ -249,7 +249,7 @@ class FuturesTest extends AbstractFutureTest {
       }
       // Test with exceptionally completed future
       {
-         final var future = new ExtendedFuture<String>();
+         final var future = ExtendedFuture.create();
          future.completeExceptionally(new RuntimeException());
 
          final var result = Futures.getOrFallback(future, 100, TimeUnit.MILLISECONDS, "Fallback");
@@ -280,7 +280,7 @@ class FuturesTest extends AbstractFutureTest {
       }
       // Test with cancelled future
       {
-         final var future2 = new ExtendedFuture<String>();
+         final var future2 = ExtendedFuture.create();
          future2.cancel(true);
          final var futures = new ExtendedFuture<?>[] {future1, future2};
 
@@ -289,7 +289,7 @@ class FuturesTest extends AbstractFutureTest {
       }
       // Test case with a future that completes exceptionally
       {
-         final var future2 = new ExtendedFuture<String>();
+         final var future2 = ExtendedFuture.create();
          future2.completeExceptionally(new RuntimeException());
          final var futures = new ExtendedFuture<?>[] {future1, future2};
 
@@ -319,7 +319,7 @@ class FuturesTest extends AbstractFutureTest {
       }
       // Test with cancelled future
       {
-         final var future2 = new ExtendedFuture<String>();
+         final var future2 = ExtendedFuture.create();
          future2.cancel(true);
          final var futures = List.of(future1, future2);
 
@@ -328,7 +328,7 @@ class FuturesTest extends AbstractFutureTest {
       }
       // Test case with a future that completes exceptionally
       {
-         final var future2 = new ExtendedFuture<String>();
+         final var future2 = ExtendedFuture.create();
          future2.completeExceptionally(new RuntimeException());
          final var futures = List.of(future1, future2);
 
@@ -351,7 +351,7 @@ class FuturesTest extends AbstractFutureTest {
       }
       // Test with some futures completed
       {
-         final var future2 = new ExtendedFuture<>();
+         final var future2 = ExtendedFuture.create();
          final var futures = new ExtendedFuture<?>[] {future1, future2};
 
          final var result = Futures.getAllNowOrThrow(futures);
@@ -359,7 +359,7 @@ class FuturesTest extends AbstractFutureTest {
       }
       // Test with cancelled future
       {
-         final var future2 = new ExtendedFuture<String>();
+         final var future2 = ExtendedFuture.create();
          future2.cancel(true);
          final var futures = new ExtendedFuture<?>[] {future1, future2};
 
@@ -368,7 +368,7 @@ class FuturesTest extends AbstractFutureTest {
       }
       // Test with exceptionally completed future
       {
-         final var future2 = new ExtendedFuture<String>();
+         final var future2 = ExtendedFuture.create();
          future2.completeExceptionally(new RuntimeException());
          final var futures = new ExtendedFuture<?>[] {future1, future2};
 
@@ -391,7 +391,7 @@ class FuturesTest extends AbstractFutureTest {
       }
       // Test with some futures completed
       {
-         final var future2 = new ExtendedFuture<>();
+         final var future2 = ExtendedFuture.create();
          final var futures = List.of(future1, future2);
 
          final var result = Futures.getAllNowOrThrow(futures);
@@ -399,7 +399,7 @@ class FuturesTest extends AbstractFutureTest {
       }
       // Test with cancelled future
       {
-         final var future2 = new ExtendedFuture<String>();
+         final var future2 = ExtendedFuture.create();
          future2.cancel(true);
          final var futures = List.of(future1, future2);
 
@@ -408,7 +408,7 @@ class FuturesTest extends AbstractFutureTest {
       }
       // Test with exceptionally completed future
       {
-         final var future2 = new ExtendedFuture<String>();
+         final var future2 = ExtendedFuture.create();
          future2.completeExceptionally(new RuntimeException());
          final var futures = List.of(future1, future2);
 
@@ -456,14 +456,14 @@ class FuturesTest extends AbstractFutureTest {
       }
       // Test with incomplete future
       {
-         final var future = new ExtendedFuture<>();
+         final var future = ExtendedFuture.create();
 
          final var result = Futures.getNowOrFallback(future, "Fallback");
          assertThat(result).isEqualTo("Fallback");
       }
       // Test with cancelled future
       {
-         final var future = new ExtendedFuture<String>();
+         final var future = ExtendedFuture.create();
          future.cancel(true);
 
          final var result = Futures.getNowOrFallback(future, "Fallback");
@@ -471,7 +471,7 @@ class FuturesTest extends AbstractFutureTest {
       }
       // Test with exceptionally completed future
       {
-         final var future = new ExtendedFuture<String>();
+         final var future = ExtendedFuture.create();
          future.completeExceptionally(new RuntimeException());
 
          final var result = Futures.getNowOrFallback(future, "Fallback");
