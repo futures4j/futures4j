@@ -371,6 +371,113 @@ public abstract class Futures {
    }
 
    /**
+    * Waits for all futures to complete and returns a list of results from all normally completed futures.
+    *
+    * @return a list of results from all normally completed futures; an empty list if no futures are completed normally
+    */
+   public static <T> List<T> getAll(final @Nullable Collection<? extends @Nullable Future<? extends T>> futures) {
+      if (futures == null || futures.isEmpty())
+         return Collections.emptyList();
+
+      final var result = new ArrayList<T>();
+      for (final var future : futures) {
+         if (future != null) {
+            try {
+               result.add(future.get());
+            } catch (final InterruptedException ex) {
+               Thread.interrupted();
+               LOG.log(Level.DEBUG, ex.getMessage(), ex);
+            } catch (final Exception ex) {
+               LOG.log(Level.DEBUG, ex.getMessage(), ex);
+            }
+         }
+      }
+      return result;
+   }
+
+   /**
+    * Waits for all futures to complete and returns a list of results from all normally completed futures.
+    *
+    * @return a list of results from all normally completed futures; an empty list if no futures are completed normally
+    */
+   public static <T> List<T> getAll(final @Nullable Future<? extends T> @Nullable [] futures) {
+      if (futures == null || futures.length == 0)
+         return Collections.emptyList();
+
+      final var result = new ArrayList<T>();
+      for (final var future : futures) {
+         if (future != null) {
+            try {
+               result.add(future.get());
+            } catch (final InterruptedException ex) {
+               Thread.interrupted();
+               LOG.log(Level.DEBUG, ex.getMessage(), ex);
+            } catch (final Exception ex) {
+               LOG.log(Level.DEBUG, ex.getMessage(), ex);
+            }
+         }
+      }
+      return result;
+   }
+
+   /**
+    * Waits up to the specified timeout for all futures to complete and returns a list of results from all normally completed futures.
+    *
+    * @return a list of results from all normally completed futures; an empty list if no futures are completed normally
+    */
+   public static <T> List<T> getAll(final @Nullable Collection<? extends @Nullable Future<? extends T>> futures, final long timeout,
+         final TimeUnit unit) {
+      if (futures == null || futures.isEmpty())
+         return Collections.emptyList();
+
+      final var result = new ArrayList<T>();
+      final var timeoutMS = unit.toMillis(timeout);
+      final var startAt = System.currentTimeMillis();
+      for (final var future : futures) {
+         if (future != null) {
+            try {
+               final var maxWaitMS = Math.max(0, timeoutMS - (System.currentTimeMillis() - startAt));
+               result.add(future.get(maxWaitMS, TimeUnit.MILLISECONDS));
+            } catch (final InterruptedException ex) {
+               Thread.interrupted();
+               LOG.log(Level.DEBUG, ex.getMessage(), ex);
+            } catch (final Exception ex) {
+               LOG.log(Level.DEBUG, ex.getMessage(), ex);
+            }
+         }
+      }
+      return result;
+   }
+
+   /**
+    * Waits up to the specified timeout for all futures to complete and returns a list of results from all normally completed futures.
+    *
+    * @return a list of results from all normally completed futures; an empty list if no futures are completed normally
+    */
+   public static <T> List<T> getAll(final @Nullable Future<? extends T> @Nullable [] futures, final long timeout, final TimeUnit unit) {
+      if (futures == null || futures.length == 0)
+         return Collections.emptyList();
+
+      final var result = new ArrayList<T>();
+      final var timeoutMS = unit.toMillis(timeout);
+      final var startAt = System.currentTimeMillis();
+      for (final var future : futures) {
+         if (future != null) {
+            try {
+               final var maxWaitMS = Math.max(0, timeoutMS - (System.currentTimeMillis() - startAt));
+               result.add(future.get(maxWaitMS, TimeUnit.MILLISECONDS));
+            } catch (final InterruptedException ex) {
+               Thread.interrupted();
+               LOG.log(Level.DEBUG, ex.getMessage(), ex);
+            } catch (final Exception ex) {
+               LOG.log(Level.DEBUG, ex.getMessage(), ex);
+            }
+         }
+      }
+      return result;
+   }
+
+   /**
     * Returns a list of results from all normally completed futures.
     * <p>
     * Futures that are incomplete, canceled, or completed exceptionally are ignored.
@@ -380,7 +487,8 @@ public abstract class Futures {
    public static <T> List<T> getAllNow(final @Nullable Collection<? extends @Nullable Future<? extends T>> futures) {
       if (futures == null || futures.isEmpty())
          return Collections.emptyList();
-      final List<T> result = new ArrayList<>();
+
+      final var result = new ArrayList<T>();
       for (final var future : futures) {
          if (future != null && future.isDone()) {
             try {
@@ -433,22 +541,17 @@ public abstract class Futures {
     *
     * @throws CancellationException if any future was canceled
     * @throws ExecutionException if any future completed exceptionally
+    * @throws InterruptedException if the current thread was interrupted while waiting
     */
    public static <T> List<T> getAllNowOrThrow(final @Nullable Collection<? extends @Nullable Future<? extends T>> futures)
-         throws ExecutionException {
+         throws ExecutionException, InterruptedException {
       if (futures == null || futures.isEmpty())
          return Collections.emptyList();
-      final List<T> result = new ArrayList<>();
+
+      final var result = new ArrayList<T>();
       for (final var future : futures) {
          if (future != null && future.isDone()) {
-            try {
-               result.add(future.get());
-            } catch (final InterruptedException ex) {
-               Thread.interrupted();
-               LOG.log(Level.DEBUG, ex.getMessage(), ex);
-            } catch (final CancellationException | ExecutionException ex) {
-               throw ex;
-            }
+            result.add(future.get());
          }
       }
       return result;
@@ -464,23 +567,130 @@ public abstract class Futures {
     *
     * @throws CancellationException if any future was canceled
     * @throws ExecutionException if any future completed exceptionally
+    * @throws InterruptedException if the current thread was interrupted while waiting
     */
    @SafeVarargs
    public static <T> List<T> getAllNowOrThrow(final @NonNullByDefault({}) Future<? extends T> @Nullable... futures)
-         throws ExecutionException {
+         throws ExecutionException, InterruptedException {
       if (futures == null || futures.length == 0)
          return Collections.emptyList();
-      final List<T> result = new ArrayList<>();
+
+      final var result = new ArrayList<T>();
       for (final var future : futures) {
          if (future != null && future.isDone()) {
-            try {
-               result.add(future.get());
-            } catch (final InterruptedException ex) {
-               Thread.interrupted();
-               LOG.log(Level.DEBUG, ex.getMessage(), ex);
-            } catch (final CancellationException | ExecutionException ex) {
-               throw ex;
-            }
+            result.add(future.get());
+         }
+      }
+      return result;
+   }
+
+   /**
+    * Returns a list of results from all completed futures within the specified timeout.
+    * <p>
+    * If at least one future was cancelled or completed exceptionally, this method will throw the corresponding exception.
+    * Futures that are incomplete are ignored.
+    *
+    * @return a list of results from all completed futures; an empty list if no futures are completed
+    *
+    * @throws CancellationException if any future was cancelled
+    * @throws ExecutionException if any future completed exceptionally
+    * @throws InterruptedException if the current thread was interrupted while waiting
+    * @throws TimeoutException if the wait timed out before all futures completed
+    */
+   public static <T> List<T> getAllOrThrow(final @Nullable Collection<? extends @Nullable Future<? extends T>> futures, final long timeout,
+         final TimeUnit unit) throws InterruptedException, ExecutionException, TimeoutException {
+      if (futures == null || futures.isEmpty())
+         return Collections.emptyList();
+
+      final var result = new ArrayList<T>();
+      final var timeoutMS = unit.toMillis(timeout);
+      final var startAt = System.currentTimeMillis();
+      for (final var future : futures) {
+         if (future != null) {
+            final var maxWaitMS = Math.max(0, timeoutMS - (System.currentTimeMillis() - startAt));
+            result.add(future.get(maxWaitMS, TimeUnit.MILLISECONDS));
+         }
+      }
+      return result;
+   }
+
+   /**
+    * Waits for all futures to complete and returns a list of results from all normally completed futures.
+    * <p>
+    * If at least one future was cancelled or completed exceptionally, this method will throw the corresponding exception.
+    * Futures that are incomplete are ignored.
+    *
+    * @return a list of results from all completed futures; an empty list if no futures are completed normally
+    *
+    * @throws CancellationException if any future was cancelled
+    * @throws ExecutionException if any future completed exceptionally
+    * @throws InterruptedException if the current thread was interrupted while waiting
+    */
+   public static <T> List<T> getAllOrThrow(final @Nullable Future<? extends T> @Nullable [] futures) throws ExecutionException,
+         InterruptedException {
+      if (futures == null || futures.length == 0)
+         return Collections.emptyList();
+
+      final var result = new ArrayList<T>();
+      for (final var future : futures) {
+         if (future != null) {
+            result.add(future.get());
+         }
+      }
+      return result;
+   }
+
+   /**
+    * Waits for all futures to complete and returns a list of results from all normally completed futures.
+    * <p>
+    * If at least one future was cancelled or completed exceptionally, this method will throw the corresponding exception.
+    * Futures that are incomplete are ignored.
+    *
+    * @return a list of results from all completed futures; an empty list if no futures are completed normally
+    *
+    * @throws CancellationException if any future was cancelled
+    * @throws ExecutionException if any future completed exceptionally
+    * @throws InterruptedException if the current thread was interrupted while waiting
+    */
+   public static <T> List<T> getAllOrThrow(final @Nullable Collection<? extends @Nullable Future<? extends T>> futures)
+         throws ExecutionException, InterruptedException {
+      if (futures == null || futures.isEmpty())
+         return Collections.emptyList();
+
+      final var result = new ArrayList<T>();
+      for (final var future : futures) {
+         if (future != null) {
+            result.add(future.get());
+         }
+      }
+      return result;
+   }
+
+   /**
+    * Returns a list of results from all completed futures within the specified timeout.
+    * <p>
+    * If at least one future was cancelled or completed exceptionally, this method will throw the corresponding exception.
+    * Futures that are incomplete are ignored.
+    *
+    * @return a list of results from all completed futures; an empty list if no futures are completed
+    *
+    * @throws CancellationException if any future was cancelled
+    * @throws ExecutionException if any future completed exceptionally
+    * @throws InterruptedException if the current thread was interrupted while waiting
+    * @throws TimeoutException if the wait timed out before all futures completed
+    */
+   public static <T> List<T> getAllOrThrow(final @Nullable Future<? extends T> @Nullable [] futures, final long timeout,
+         final TimeUnit unit) throws ExecutionException, InterruptedException, TimeoutException {
+      if (futures == null || futures.length == 0)
+         return Collections.emptyList();
+
+      final var result = new ArrayList<T>();
+      final var timeoutMS = unit.toMillis(timeout);
+      final var startAt = System.currentTimeMillis();
+      for (final var future : futures) {
+         if (future != null && future.isDone()) {
+            final var maxWaitMS = Math.max(0, timeoutMS - (System.currentTimeMillis() - startAt));
+            result.add(future.get(maxWaitMS, TimeUnit.MILLISECONDS));
          }
       }
       return result;
