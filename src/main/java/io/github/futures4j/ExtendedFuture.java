@@ -579,6 +579,16 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    /**
+    * Returns the result of this future if it is already completed, or the value provided by
+    * {@code fallbackComputer} if the future is incomplete, cancelled or completed exceptionally.
+    *
+    * @return the result of the future if completed normally, otherwise the value computed by {@code fallbackComputer}
+    */
+   public T getNowOrComputeFallback(final BiFunction<Future<T>, @Nullable Exception, T> fallbackComputer) {
+      return Futures.getNowOrComputeFallback(this, fallbackComputer);
+   }
+
+   /**
     * Returns the result of this future if it is already completed, or the specified
     * {@code fallback} if the future is incomplete, cancelled or completed exceptionally.
     *
@@ -596,6 +606,16 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     */
    public Optional<T> getOptional(final long timeout, final TimeUnit unit) {
       return Futures.getOptional(this, timeout, unit);
+   }
+
+   /**
+    * Attempts to retrieve the result of this future within the specified timeout.
+    *
+    * @return the result of the future if completed normally within given timeout, the value computed by {@code fallbackComputer}
+    */
+   public T getOrComputeFallback(final long timeout, final TimeUnit unit,
+         final BiFunction<Future<T>, @Nullable Exception, T> fallbackComputer) {
+      return Futures.getOrComputeFallback(this, timeout, unit, fallbackComputer);
    }
 
    /**

@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
@@ -426,6 +427,8 @@ class FuturesTest extends AbstractFutureTest {
 
          final var result = Futures.getNowOrFallback(future, "Fallback");
          assertThat(result).isEqualTo("Success");
+         final var result2 = Futures.getNowOrComputeFallback(future, (f, ex) -> "Fallback");
+         assertThat(result2).isEqualTo("Success");
       }
       // Test with incomplete future
       {
@@ -433,6 +436,8 @@ class FuturesTest extends AbstractFutureTest {
 
          final var result = Futures.getNowOrFallback(future, "Fallback");
          assertThat(result).isEqualTo("Fallback");
+         final var result2 = Futures.getNowOrComputeFallback(future, (f, ex) -> "Fallback");
+         assertThat(result2).isEqualTo("Fallback");
       }
 
       // Test with cancelled future
@@ -442,17 +447,63 @@ class FuturesTest extends AbstractFutureTest {
 
          final var result = Futures.getNowOrFallback(future, "Fallback");
          assertThat(result).isEqualTo("Fallback");
+         final var result2 = Futures.getNowOrComputeFallback(future, (f, ex) -> "Fallback");
+         assertThat(result2).isEqualTo("Fallback");
       }
    }
 
    @Test
-   void testGetNow_Java8Future() {
+   void testGetNow_CompletableFuture() {
+      // Test with successfully completed future
+      {
+         final var future = CompletableFuture.completedFuture("Success");
+
+         final var result = Futures.getNowOrFallback(future, "Fallback");
+         assertThat(result).isEqualTo("Success");
+         final var result2 = Futures.getNowOrComputeFallback(future, (f, ex) -> "Fallback");
+         assertThat(result2).isEqualTo("Success");
+      }
+      // Test with incomplete future
+      {
+         final var future = new CompletableFuture<>();
+
+         final var result = Futures.getNowOrFallback(future, "Fallback");
+         assertThat(result).isEqualTo("Fallback");
+         final var result2 = Futures.getNowOrComputeFallback(future, (f, ex) -> "Fallback");
+         assertThat(result2).isEqualTo("Fallback");
+      }
+      // Test with cancelled future
+      {
+         final var future = new CompletableFuture<>();
+         future.cancel(true);
+
+         final var result = Futures.getNowOrFallback(future, "Fallback");
+         assertThat(result).isEqualTo("Fallback");
+         final var result2 = Futures.getNowOrComputeFallback(future, (f, ex) -> "Fallback");
+         assertThat(result2).isEqualTo("Fallback");
+      }
+      // Test with exceptionally completed future
+      {
+         final var future = new CompletableFuture<>();
+         future.completeExceptionally(new RuntimeException());
+
+         final var result = Futures.getNowOrFallback(future, "Fallback");
+         assertThat(result).isEqualTo("Fallback");
+         final var result2 = Futures.getNowOrComputeFallback(future, (f, ex) -> "Fallback");
+         assertThat(result2).isEqualTo("Fallback");
+      }
+   }
+
+   @Test
+   void testGetNow_ExtendedFuture() {
       // Test with successfully completed future
       {
          final var future = ExtendedFuture.completedFuture("Success");
 
          final var result = Futures.getNowOrFallback(future, "Fallback");
          assertThat(result).isEqualTo("Success");
+         final var result2 = Futures.getNowOrComputeFallback(future, (f, ex) -> "Fallback");
+         assertThat(result2).isEqualTo("Success");
       }
       // Test with incomplete future
       {
@@ -460,6 +511,8 @@ class FuturesTest extends AbstractFutureTest {
 
          final var result = Futures.getNowOrFallback(future, "Fallback");
          assertThat(result).isEqualTo("Fallback");
+         final var result2 = Futures.getNowOrComputeFallback(future, (f, ex) -> "Fallback");
+         assertThat(result2).isEqualTo("Fallback");
       }
       // Test with cancelled future
       {
@@ -468,6 +521,8 @@ class FuturesTest extends AbstractFutureTest {
 
          final var result = Futures.getNowOrFallback(future, "Fallback");
          assertThat(result).isEqualTo("Fallback");
+         final var result2 = Futures.getNowOrComputeFallback(future, (f, ex) -> "Fallback");
+         assertThat(result2).isEqualTo("Fallback");
       }
       // Test with exceptionally completed future
       {
@@ -476,6 +531,8 @@ class FuturesTest extends AbstractFutureTest {
 
          final var result = Futures.getNowOrFallback(future, "Fallback");
          assertThat(result).isEqualTo("Fallback");
+         final var result2 = Futures.getNowOrComputeFallback(future, (f, ex) -> "Fallback");
+         assertThat(result2).isEqualTo("Fallback");
       }
    }
 

@@ -21,6 +21,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.BiFunction;
 import java.util.stream.Stream;
 
 import org.eclipse.jdt.annotation.NonNullByDefault;
@@ -491,15 +492,23 @@ public abstract class Futures {
     *
     * @return an {@link Optional} containing the result of the future if completed normally, or an empty {@link Optional} otherwise
     */
-   public static <T> Optional<T> getNowOptional(final CompletableFuture<T> future) {
-      if (future.isDone()) {
-         try {
-            return Optional.ofNullable(future.get(0, TimeUnit.SECONDS));
-         } catch (final Exception ex) {
-            LOG.log(Level.DEBUG, ex.getMessage(), ex);
-         }
-      }
+   public static <T> Optional<T> getNowOptional(final Future<T> future) {
+      if (future.isDone())
+         return getOptional(future, 0, TimeUnit.SECONDS);
       return Optional.empty();
+   }
+
+   /**
+    * Returns the result of the given {@link Future} if it is already completed, or the value computed by
+    * {@code fallbackComputer} if the future is incomplete or completed exceptionally.
+    *
+    * @return the result of the future if completed, otherwise the value computed by {@code fallbackComputer}
+    */
+   public static <T> T getNowOrComputeFallback(final Future<T> future,
+         final BiFunction<Future<T>, @Nullable Exception, T> fallbackComputer) {
+      if (future.isDone())
+         return getOrComputeFallback(future, 0, TimeUnit.SECONDS, fallbackComputer);
+      return fallbackComputer.apply(future, null);
    }
 
    /**
@@ -526,16 +535,8 @@ public abstract class Futures {
     * @return the result of the future if completed, otherwise {@code fallback}
     */
    public static <T> T getNowOrFallback(final Future<T> future, final T fallback) {
-      if (future.isDone()) {
-         try {
-            return future.get(0, TimeUnit.SECONDS);
-         } catch (final InterruptedException ex) {
-            Thread.interrupted();
-            LOG.log(Level.DEBUG, ex.getMessage(), ex);
-         } catch (final Exception ex) {
-            LOG.log(Level.DEBUG, ex.getMessage(), ex);
-         }
-      }
+      if (future.isDone())
+         return getOrFallback(future, 0, TimeUnit.SECONDS, fallback);
       return fallback;
    }
 
@@ -559,6 +560,30 @@ public abstract class Futures {
          LOG.log(Level.DEBUG, ex.getMessage(), ex);
       }
       return Optional.empty();
+   }
+
+   /**
+    * Attempts to retrieve the result of the given {@link Future} within the specified timeout.
+    *
+    * @return the result of the future if completed normally, otherwise the value computed by {@code fallbackComputer}
+    */
+   public static <T> T getOrComputeFallback(final Future<T> future, final long timeout, final TimeUnit unit,
+         final BiFunction<Future<T>, @Nullable Exception, T> fallbackComputer) {
+      try {
+         return future.get(timeout, unit);
+      } catch (final TimeoutException ex) {
+         if (LOG.isLoggable(Level.DEBUG)) {
+            LOG.log(Level.DEBUG, "Could not get result within " + timeout + " " + unit.toString().toLowerCase() + "(s)", ex);
+         }
+         return fallbackComputer.apply(future, ex);
+      } catch (final InterruptedException ex) {
+         Thread.interrupted();
+         LOG.log(Level.DEBUG, ex.getMessage(), ex);
+         return fallbackComputer.apply(future, ex);
+      } catch (final Exception ex) {
+         LOG.log(Level.DEBUG, ex.getMessage(), ex);
+         return fallbackComputer.apply(future, ex);
+      }
    }
 
    /**
