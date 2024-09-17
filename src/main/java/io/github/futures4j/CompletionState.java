@@ -5,8 +5,11 @@
  */
 package io.github.futures4j;
 
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ForkJoinTask;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Describes the completion state of a {@link Future}
@@ -21,9 +24,6 @@ public enum CompletionState {
     */
    COMPLETED,
 
-   /**
-    * Only applicable to {@link CompletableFuture}
-    */
    COMPLETED_EXCEPTIONALLY,
 
    CANCELLED;
@@ -32,12 +32,28 @@ public enum CompletionState {
       if (future.isCancelled())
          return CompletionState.CANCELLED;
 
-      if (future instanceof final CompletableFuture<?> cf && cf.isCompletedExceptionally())
-         return CompletionState.COMPLETED_EXCEPTIONALLY;
+      if (future.isDone()) {
+         if (future instanceof final CompletableFuture<?> cf) {
+            if (cf.isCompletedExceptionally())
+               return CompletionState.COMPLETED_EXCEPTIONALLY;
+            return CompletionState.COMPLETED;
+         }
 
-      if (future.isDone())
-         return CompletionState.COMPLETED;
+         if (future instanceof final ForkJoinTask<?> fjt) {
+            if (fjt.isCompletedNormally())
+               return CompletionState.COMPLETED;
+            return CompletionState.COMPLETED_EXCEPTIONALLY;
+         }
 
+         try {
+            future.get(0, TimeUnit.SECONDS);
+            return CompletionState.COMPLETED;
+         } catch (final CancellationException ex) {
+            return CompletionState.CANCELLED;
+         } catch (final Exception ex) {
+            return CompletionState.COMPLETED_EXCEPTIONALLY;
+         }
+      }
       return CompletionState.INCOMPLETE;
    }
 }
