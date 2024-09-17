@@ -122,7 +122,7 @@ Java's [java.util.concurrent.CompletableFuture](https://docs.oracle.com/en/java/
    ```
 
    This even works for nested chains:
-   ```
+   ```java
    var myFuture = ExtendedFuture.supplyAsync(...)
 
    var myCancellableChain = myFuture
@@ -267,7 +267,7 @@ It simplifies handling asynchronous computations by offering functionality to ca
        Future<String> future = ...;
 
        // "Fallback Result" if timeout occurs, future is cancelled or completes exceptionally
-       String result = Futures.get(future, 1, TimeUnit.SECONDS, "Fallback Result");
+       String result = Futures.getOrFallback(future, 1, TimeUnit.SECONDS, "Fallback Result");
        ```
 
     - Get completed results from multiple futures now

@@ -272,14 +272,14 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    /**
-    * Derives a {@link ExtendedFuture} from a {@link CompletableFuture} with {@link #isCancellableByDependents()} set to {@code false}.
+    * Derives an {@link ExtendedFuture} from a {@link CompletableFuture} with {@link #isCancellableByDependents()} set to {@code false}.
     * <p>
     * Returns the given future if it is already an instance of {@link ExtendedFuture} with {@link #isCancellableByDependents()} set to
     * {@code false}.
     */
    public static <V> ExtendedFuture<V> from(final CompletableFuture<V> source) {
       if (source instanceof final ExtendedFuture<V> cf)
-         return cf;
+         return cf.asCancellableByDependents(false);
       return new ExtendedFuture<>(source.defaultExecutor(), false, true, source);
    }
 
@@ -483,6 +483,16 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
             : new ExtendedFuture<>(defaultExecutor, isCancellableByDependents, interruptibleStages, this);
    }
 
+   /**
+    * Returns an {@link ExtendedFuture} that shares the result with this future but ensures
+    * that this future cannot be interrupted, i.e., calling {@code cancel(true)} will not
+    * result in a thread interruption.
+    * <p>
+    * If the future is already non-interruptible, this instance is returned.
+    *
+    * @return a new {@link ExtendedFuture} that is non-interruptible,
+    *         or this instance if it is already non-interruptible.
+    */
    public ExtendedFuture<T> asNonInterruptible() {
       if (!isInterruptible())
          return this;
@@ -960,6 +970,13 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       }
    }
 
+   /**
+    * Returns {@code true} if this future is cancellable by its dependent stages.
+    * If {@code true}, cancellation of a dependent stage will also cancel this future and any preceding stages.
+    * If {@code false}, cancellation of dependent stages will not affect this future.
+    *
+    * @return {@code true} if this future is cancellable by dependents, {@code false} otherwise.
+    */
    public boolean isCancellableByDependents() {
       return cancellableByDependents;
    }
@@ -1412,6 +1429,16 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
             : new ExtendedFuture<>(defaultExecutor, cancellableByDependents, interruptibleStages, this);
    }
 
+   /**
+    * Returns an {@link ExtendedFuture} that shares the result with this future but with
+    * the specified behavior for new stages being interruptible or not.
+    * <p>
+    * If the requested interruptibility behavior matches the current one, this instance is returned.
+    *
+    * @param interruptibleStages {@code true} if new stages should be interruptible, {@code false} otherwise
+    * @return a new {@link ExtendedFuture} with the specified interruptibility behavior for new stages,
+    *         or this instance if the behavior remains unchanged.
+    */
    public ExtendedFuture<T> withInterruptibleStages(final boolean interruptibleStages) {
       if (interruptibleStages == this.interruptibleStages)
          return this;
