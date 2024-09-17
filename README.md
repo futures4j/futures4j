@@ -94,7 +94,7 @@ Java's [java.util.concurrent.CompletableFuture](https://docs.oracle.com/en/java/
 
    myFuture.cancel(true); // will try to interrupt the async runnable
 
-   var myFutureNonInterruptible = myFuture.asInterruptible(false);
+   var myFutureNonInterruptible = myFuture.asNonInterruptible();
    myFutureNonInterruptible.cancel(true); // behaves like CompletableFuture.cancel(true) which ignores the boolean value
    ```
 

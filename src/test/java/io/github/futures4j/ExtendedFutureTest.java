@@ -68,6 +68,9 @@ class ExtendedFutureTest extends AbstractFutureTest {
       testCompletedFuture(ExtendedFuture::create, ExtendedFuture::completedFuture);
       testCompletedFuture(ExtendedFuture::create, value -> ExtendedFuture.from(CompletableFuture.completedFuture(value))
          .asCancellableByDependents(true));
+
+      assertThat(ExtendedFuture.from(CompletableFuture.completedFuture(null)).isInterruptible()).isFalse();
+      assertThat(ExtendedFuture.from(CompletableFuture.completedFuture(null)).isInterruptibleStages()).isTrue();
    }
 
    @Test
@@ -106,8 +109,9 @@ class ExtendedFutureTest extends AbstractFutureTest {
       {
          final var future = ExtendedFuture.builder().build();
 
-         assertThat(future).isInstanceOf(ExtendedFutureInterruptible.class);
+         assertThat(future).isInstanceOf(ExtendedFuture.InterruptibleFuture.class);
          assertThat(future.isInterruptible()).isTrue();
+         assertThat(future.isInterruptibleStages()).isTrue();
          assertThat(future.isCancellableByDependents()).isFalse();
          assertThat(future.defaultExecutor()).isNotNull();
          assertThat(future.getCompletionState()).isEqualTo(CompletionState.INCOMPLETE);
@@ -119,13 +123,15 @@ class ExtendedFutureTest extends AbstractFutureTest {
 
          final var future = ExtendedFuture.builder() //
             .withInterruptible(false) //
+            .withInterruptibleStages(false) //
             .withCancellableByDependents(true) //
             .withDefaultExecutor(customExecutor) //
             .withWrapped(wrappedFuture) //
             .build();
 
-         assertThat(future).isNotInstanceOf(ExtendedFutureInterruptible.class);
+         assertThat(future).isNotInstanceOf(ExtendedFuture.InterruptibleFuture.class);
          assertThat(future.isInterruptible()).isFalse();
+         assertThat(future.isInterruptibleStages()).isFalse();
          assertThat(future.isCancellableByDependents()).isTrue();
          assertThat(future.defaultExecutor()).isEqualTo(customExecutor);
          assertThat(future).isCompletedWithValue("Hello");
@@ -179,7 +185,7 @@ class ExtendedFutureTest extends AbstractFutureTest {
          .completedFuture(null) //
          .thenCompose(result -> {
             final var nestedStage = ExtendedFuture //
-               .runAsync(createTask(stage1NestedState, 1_000)) //
+               .runAsync(createTask(stage1NestedState, 5_000)) //
                .asCancellableByDependents(true);
             assertThat(nestedStage.isInterruptible()).isTrue();
             stage1Nested.set(nestedStage);

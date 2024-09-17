@@ -11,10 +11,13 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
@@ -31,7 +34,8 @@ import io.github.futures4j.util.ThrowingSupplier;
 /**
  * An enhanced version of {@link CompletableFuture} that:
  * <ol>
- * <li>supports task thread interruption via <code>cancel(true)</code>, controllable via {@link #asInterruptible(boolean)}
+ * <li>supports task thread interruption via <code>cancel(true)</code>, controllable via {@link #asNonInterruptible()} and
+ * {@link #withInterruptibleStages(boolean)}
  * <li>allows dependent stages cancel preceding stages, controllable via {@link #asCancellableByDependents(boolean)}
  * <li>allows running tasks that throw checked exceptions via e.g. {@link #runAsync(ThrowingRunnable)}, etc.
  * <li>allows creating a read-only view of a future using {@link #asReadOnly(ReadOnlyMode)}
@@ -61,6 +65,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
       private boolean cancellableByDependents = false;
       private boolean interruptible = true;
+      private boolean interruptibleStages = true;
       private @Nullable Executor defaultExecutor;
       private @Nullable CompletableFuture<V> wrapped;
 
@@ -68,9 +73,9 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       }
 
       public ExtendedFuture<V> build() {
-         return interruptible //
-               ? new ExtendedFutureInterruptible<>(defaultExecutor, cancellableByDependents, wrapped)
-               : new ExtendedFuture<>(defaultExecutor, cancellableByDependents, wrapped);
+         return interruptible && wrapped == null //
+               ? new InterruptibleFuture<>(defaultExecutor, cancellableByDependents, interruptibleStages)
+               : new ExtendedFuture<>(defaultExecutor, cancellableByDependents, interruptibleStages, wrapped);
       }
 
       public Builder<V> withCancellableByDependents(final boolean isCancellableByDependents) {
@@ -83,8 +88,13 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          return this;
       }
 
-      public Builder<V> withInterruptible(final boolean isInterruptible) {
-         interruptible = isInterruptible;
+      public Builder<V> withInterruptible(final boolean interruptible) {
+         this.interruptible = interruptible;
+         return this;
+      }
+
+      public Builder<V> withInterruptibleStages(final boolean interruptibleStages) {
+         this.interruptibleStages = interruptibleStages;
          return this;
       }
 
@@ -102,6 +112,91 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
       /** mutation attempts will be silently ignored */
       IGNORE_MUTATION
+   }
+
+   static final class InterruptibleFuture<T> extends ExtendedFuture<T> {
+
+      /**
+       * Set by e.g. {@link ExtendedFuture#interruptiblyRun(int, Runnable)}
+       */
+      private @Nullable Thread executingThread;
+      private final Object executingThreadLock = new Object();
+
+      InterruptibleFuture(@Nullable final Executor defaultExecutor, final boolean cancellableByDependents,
+            final boolean interruptibleStages) {
+         super(defaultExecutor, cancellableByDependents, interruptibleStages, null);
+      }
+
+      @Override
+      public boolean cancel(final boolean mayInterruptIfRunning) {
+         if (isDone())
+            return isCancelled();
+
+         final var cancelled = super.cancel(mayInterruptIfRunning);
+         if (cancelled && mayInterruptIfRunning) {
+            synchronized (executingThreadLock) {
+               if (executingThread != null) {
+                  executingThread.interrupt();
+               }
+            }
+         }
+         return cancelled;
+      }
+
+      @Override
+      public boolean isInterruptible() {
+         return true;
+      }
+   }
+
+   static final class InterruptibleFutureWrapper<T> extends ExtendedFuture<T> {
+
+      InterruptibleFutureWrapper(final @Nullable Executor defaultExecutor, final boolean cancellableByDependents,
+            final boolean interruptibleStages, final ExtendedFuture<T> wrapped) {
+         super(defaultExecutor, cancellableByDependents, interruptibleStages, wrapped);
+      }
+
+      @Override
+      public boolean isInterruptible() {
+         return true;
+      }
+   }
+
+   private record NewIncompleteFutureHolder<T>(InterruptibleFuture<T> future, long expiresOn) {
+
+      private static final AtomicInteger ID_GENERATOR = new AtomicInteger();
+      private static final ThreadLocal<@Nullable Integer> ID = new ThreadLocal<>();
+      private static final ConcurrentMap<Integer, NewIncompleteFutureHolder<?>> BY_ID = new ConcurrentHashMap<>(4);
+
+      @SuppressWarnings("unchecked")
+      static <V> InterruptibleFuture<V> lookup(final int futureId) {
+         final var newFuture = BY_ID.remove(futureId);
+         if (newFuture == null) // should never happen
+            throw new IllegalStateException("No future present with id " + futureId);
+
+         // remove obsolete incomplete futures (should actually not happen, just a precaution to avoid potential memory leaks)
+         if (!BY_ID.isEmpty()) {
+            final var now = System.currentTimeMillis();
+            BY_ID.values().removeIf(holder -> now > holder.expiresOn);
+         }
+
+         return (InterruptibleFuture<V>) newFuture.future;
+      }
+
+      static void store(final InterruptibleFuture<?> newFuture) {
+         final var futureId = ID.get();
+         ID.remove();
+         // potentially null for cases where #newIncompleteFuture() is used through code paths by super class not handled by this subclass
+         if (futureId != null) {
+            BY_ID.put(futureId, new NewIncompleteFutureHolder<>(newFuture, System.currentTimeMillis() + 5_000));
+         }
+      }
+
+      static int generateLookupId() {
+         final var fId = ID_GENERATOR.incrementAndGet();
+         ID.set(fId);
+         return fId;
+      }
    }
 
    /**
@@ -123,7 +218,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    public static <V> ExtendedFuture<V> completedFuture(final V value) {
-      final var f = new ExtendedFutureInterruptible<V>(null, false, null);
+      final var f = new ExtendedFuture<V>(null, false, true, null);
       f.complete(value);
       return f;
    }
@@ -132,46 +227,37 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     * @param defaultExecutor default executor for subsequent stages
     */
    public static <V> ExtendedFuture<V> completedFutureWithDefaultExecutor(final V value, final Executor defaultExecutor) {
-      final var f = new ExtendedFutureInterruptible<V>(defaultExecutor, false, null);
+      final var f = new ExtendedFuture<V>(defaultExecutor, false, true, null);
       f.complete(value);
       return f;
    }
 
    /**
-    * @return a new {@link ExtendedFuture} with {@link #isCancellableByDependents()} set to {@code false} and {@link #isInterruptible()} set
-    *         to {@code true}.
+    * @return a new {@link ExtendedFuture} with {@link #isCancellableByDependents()} set to {@code false} and
+    *         {@link #isInterruptibleStages()} set to {@code true}.
     */
    public static <V> ExtendedFuture<V> create() {
-      return new ExtendedFutureInterruptible<>(null, false, null);
+      return new ExtendedFuture<>(null, false, true, null);
    }
 
    /**
-    * @return a new {@link ExtendedFuture} with {@link #isCancellableByDependents()} set to {@code true} and {@link #isInterruptible()} set
-    *         to {@code true}.
+    * @return a new {@link ExtendedFuture} with {@link #isCancellableByDependents()} set to {@code true} and
+    *         {@link #isInterruptibleStages()} set to {@code true}.
     */
    public static <V> ExtendedFuture<V> createCancellableByDependents() {
-      return new ExtendedFutureInterruptible<>(null, true, null);
-   }
-
-   /**
-    * @return a new {@link ExtendedFuture} with {@link #isCancellableByDependents()} set to {@code false} and {@link #isInterruptible()} set
-    *         to {@code false}.
-    */
-   public static <V> ExtendedFuture<V> createNoninterruptible() {
-      return new ExtendedFuture<>(null, false, null);
+      return new ExtendedFuture<>(null, true, true, null);
    }
 
    /**
     * @return a new {@link ExtendedFuture} with the given default executor for all subsequent stages and
-    *         {@link #isCancellableByDependents()} set to {@code false} and {@link #isInterruptible()} set
-    *         to {@code true}.
+    *         {@link #isCancellableByDependents()} set to {@code false} and {@link #isInterruptibleStages()} set to {@code true}.
     */
    public static <V> ExtendedFuture<V> createWithDefaultExecutor(final Executor defaultExecutor) {
-      return new ExtendedFutureInterruptible<>(defaultExecutor, false, null);
+      return new ExtendedFuture<>(defaultExecutor, false, true, null);
    }
 
    public static <V> ExtendedFuture<V> failedFuture(final Throwable ex) {
-      final var f = new ExtendedFutureInterruptible<V>(null, false, null);
+      final var f = new ExtendedFuture<V>(null, false, true, null);
       f.completeExceptionally(ex);
       return f;
    }
@@ -180,7 +266,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     * @param defaultExecutor default executor for subsequent stages
     */
    public static <V> ExtendedFuture<V> failedFutureWithDefaultExecutor(final Throwable ex, final Executor defaultExecutor) {
-      final var f = new ExtendedFutureInterruptible<V>(defaultExecutor, false, null);
+      final var f = new ExtendedFuture<V>(defaultExecutor, false, true, null);
       f.completeExceptionally(ex);
       return f;
    }
@@ -194,7 +280,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    public static <V> ExtendedFuture<V> from(final CompletableFuture<V> source) {
       if (source instanceof final ExtendedFuture<V> cf)
          return cf;
-      return new ExtendedFutureInterruptible<>(source.defaultExecutor(), false, source);
+      return new ExtendedFuture<>(source.defaultExecutor(), false, true, source);
    }
 
    public static ExtendedFuture<@Nullable Void> runAsync(final Runnable runnable) {
@@ -241,14 +327,17 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    protected final Collection<Future<?>> cancellablePrecedingStages;
    protected final boolean cancellableByDependents;
+   protected final boolean interruptibleStages;
    protected final Executor defaultExecutor;
    protected final @Nullable CompletableFuture<T> wrapped;
 
    protected ExtendedFuture(@Nullable final Executor defaultExecutor, final boolean cancellableByDependents,
-         final @Nullable CompletableFuture<T> wrapped) {
+         final boolean interruptibleStages, final @Nullable CompletableFuture<T> wrapped) {
       this.defaultExecutor = defaultExecutor == null ? super.defaultExecutor() : defaultExecutor;
       this.cancellableByDependents = cancellableByDependents;
       cancellablePrecedingStages = wrapped == null ? new ConcurrentLinkedQueue<>() : Collections.emptyList();
+      this.interruptibleStages = interruptibleStages;
+
       this.wrapped = wrapped;
       if (wrapped != null) {
          wrapped.whenComplete((result, ex) -> {
@@ -263,61 +352,111 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public ExtendedFuture<@Nullable Void> acceptEither(final CompletionStage<? extends T> other, final Consumer<? super T> action) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.acceptEither(other, result -> interruptiblyAccept(fId, result, action));
+      }
       return (ExtendedFuture<@Nullable Void>) super.acceptEither(other, action);
    }
 
    public ExtendedFuture<@Nullable Void> acceptEither(final CompletionStage<? extends T> other,
          final ThrowingConsumer<? super T, ?> action) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.acceptEither(other, result -> interruptiblyAccept(fId, result, action));
+      }
       return (ExtendedFuture<@Nullable Void>) super.acceptEither(other, action);
    }
 
    @Override
    public ExtendedFuture<@Nullable Void> acceptEitherAsync(final CompletionStage<? extends T> other, final Consumer<? super T> action) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.acceptEitherAsync(other, result -> interruptiblyAccept(fId, result, action));
+      }
       return (ExtendedFuture<@Nullable Void>) super.acceptEitherAsync(other, action);
    }
 
    @Override
    public ExtendedFuture<@Nullable Void> acceptEitherAsync(final CompletionStage<? extends T> other, final Consumer<? super T> action,
          final Executor executor) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.acceptEitherAsync(other, result -> interruptiblyAccept(fId, result, action),
+            executor);
+      }
       return (ExtendedFuture<@Nullable Void>) super.acceptEitherAsync(other, action, executor);
    }
 
    public ExtendedFuture<@Nullable Void> acceptEitherAsync(final CompletionStage<? extends T> other,
          final ThrowingConsumer<? super T, ?> action) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.acceptEitherAsync(other, result -> interruptiblyAccept(fId, result, action));
+      }
       return (ExtendedFuture<@Nullable Void>) super.acceptEitherAsync(other, action);
    }
 
    public ExtendedFuture<@Nullable Void> acceptEitherAsync(final CompletionStage<? extends T> other,
          final ThrowingConsumer<? super T, ?> action, final Executor executor) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.acceptEitherAsync(other, result -> interruptiblyAccept(fId, result, action),
+            executor);
+      }
       return (ExtendedFuture<@Nullable Void>) super.acceptEitherAsync(other, action, executor);
    }
 
    @Override
    public <U> ExtendedFuture<U> applyToEither(final CompletionStage<? extends T> other, final Function<? super T, U> fn) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<U>) super.applyToEither(other, result -> interruptiblyApply(fId, result, fn));
+      }
       return (ExtendedFuture<U>) super.applyToEither(other, fn);
    }
 
    public <U> ExtendedFuture<U> applyToEither(final CompletionStage<? extends T> other, final ThrowingFunction<? super T, U, ?> fn) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<U>) super.applyToEither(other, result -> interruptiblyApply(fId, result, fn));
+      }
       return (ExtendedFuture<U>) super.applyToEither(other, fn);
    }
 
    @Override
    public <U> ExtendedFuture<U> applyToEitherAsync(final CompletionStage<? extends T> other, final Function<? super T, U> fn) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<U>) super.applyToEitherAsync(other, result -> interruptiblyApply(fId, result, fn));
+      }
       return (ExtendedFuture<U>) super.applyToEitherAsync(other, fn);
    }
 
    @Override
    public <U> ExtendedFuture<U> applyToEitherAsync(final CompletionStage<? extends T> other, final Function<? super T, U> fn,
          final Executor executor) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<U>) super.applyToEitherAsync(other, result -> interruptiblyApply(fId, result, fn), executor);
+      }
       return (ExtendedFuture<U>) super.applyToEitherAsync(other, fn, executor);
    }
 
    public <U> ExtendedFuture<U> applyToEitherAsync(final CompletionStage<? extends T> other, final ThrowingFunction<? super T, U, ?> fn) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<U>) super.applyToEitherAsync(other, result -> interruptiblyApply(fId, result, fn));
+      }
       return (ExtendedFuture<U>) super.applyToEitherAsync(other, fn);
    }
 
    public <U> ExtendedFuture<U> applyToEitherAsync(final CompletionStage<? extends T> other, final ThrowingFunction<? super T, U, ?> fn,
          final Executor executor) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<U>) super.applyToEitherAsync(other, result -> interruptiblyApply(fId, result, fn), executor);
+      }
       return (ExtendedFuture<U>) super.applyToEitherAsync(other, fn, executor);
    }
 
@@ -340,16 +479,14 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       if (isCancellableByDependents == cancellableByDependents)
          return this;
       return isInterruptible() //
-            ? new ExtendedFutureInterruptible<>(defaultExecutor, isCancellableByDependents, this)
-            : new ExtendedFuture<>(defaultExecutor, isCancellableByDependents, this);
+            ? new InterruptibleFutureWrapper<>(defaultExecutor, isCancellableByDependents, interruptibleStages, this)
+            : new ExtendedFuture<>(defaultExecutor, isCancellableByDependents, interruptibleStages, this);
    }
 
-   public ExtendedFuture<T> asInterruptible(final boolean isInterruptible) {
-      if (isInterruptible == isInterruptible())
+   public ExtendedFuture<T> asNonInterruptible() {
+      if (!isInterruptible())
          return this;
-      return isInterruptible //
-            ? new ExtendedFutureInterruptible<>(defaultExecutor, cancellableByDependents, this)
-            : new ExtendedFuture<>(defaultExecutor, cancellableByDependents, this);
+      return new ExtendedFuture<>(defaultExecutor, cancellableByDependents, interruptibleStages, this);
    }
 
    /**
@@ -368,7 +505,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     */
    public ExtendedFuture<T> asReadOnly(final ReadOnlyMode readOnlyMode) {
       final var throwOnMutationAttempt = readOnlyMode.equals(ReadOnlyMode.THROW_ON_MUTATION);
-      return new ExtendedFuture<>(defaultExecutor, false, this) {
+      return new ExtendedFuture<>(defaultExecutor, false, interruptibleStages, this) {
          @Override
          public boolean cancel(final boolean mayInterruptIfRunning) {
             if (throwOnMutationAttempt)
@@ -492,19 +629,35 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public ExtendedFuture<T> completeAsync(final Supplier<? extends T> supplier) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<T>) super.completeAsync(() -> interruptiblyComplete(fId, supplier));
+      }
       return (ExtendedFuture<T>) super.completeAsync(supplier);
    }
 
    @Override
    public ExtendedFuture<T> completeAsync(final Supplier<? extends T> supplier, final Executor executor) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<T>) super.completeAsync(() -> interruptiblyComplete(fId, supplier), executor);
+      }
       return (ExtendedFuture<T>) super.completeAsync(supplier, executor);
    }
 
    public ExtendedFuture<T> completeAsync(final ThrowingSupplier<? extends T, ?> supplier) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<T>) super.completeAsync(() -> interruptiblyComplete(fId, supplier));
+      }
       return (ExtendedFuture<T>) super.completeAsync(supplier);
    }
 
    public ExtendedFuture<T> completeAsync(final ThrowingSupplier<? extends T, ?> supplier, final Executor executor) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<T>) super.completeAsync(() -> interruptiblyComplete(fId, supplier), executor);
+      }
       return (ExtendedFuture<T>) super.completeAsync(supplier, executor);
    }
 
@@ -644,19 +797,167 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @Override
    @SuppressWarnings("unchecked")
    public <U> ExtendedFuture<U> handle(final BiFunction<? super T, @Nullable Throwable, ? extends U> fn) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<U>) super.handle((result, ex) -> interruptiblyHandle(fId, result, ex, fn));
+      }
       return (ExtendedFuture<U>) super.handle(fn);
    }
 
    @Override
    @SuppressWarnings("unchecked")
    public <U> ExtendedFuture<U> handleAsync(final BiFunction<? super T, @Nullable Throwable, ? extends U> fn) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<U>) super.handleAsync((result, ex) -> interruptiblyHandle(fId, result, ex, fn));
+      }
       return (ExtendedFuture<U>) super.handleAsync(fn);
    }
 
    @Override
    @SuppressWarnings("unchecked")
    public <U> ExtendedFuture<U> handleAsync(final BiFunction<? super T, @Nullable Throwable, ? extends U> fn, final Executor executor) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<U>) super.handleAsync((result, ex) -> interruptiblyHandle(fId, result, ex, fn), executor);
+      }
       return (ExtendedFuture<U>) super.handleAsync(fn, executor);
+   }
+
+   private void interruptiblyAccept(final int futureId, final T result, final Consumer<? super T> action) {
+      final var f = NewIncompleteFutureHolder.lookup(futureId);
+      synchronized (f.executingThreadLock) {
+         f.executingThread = Thread.currentThread();
+      }
+      try {
+         action.accept(result);
+      } finally {
+         synchronized (f.executingThreadLock) {
+            f.executingThread = null;
+         }
+      }
+   }
+
+   private <U> void interruptiblyAcceptBoth(final int futureId, final T result, final U otherResult,
+         final BiConsumer<? super T, ? super U> action) {
+      final var f = NewIncompleteFutureHolder.lookup(futureId);
+      synchronized (f.executingThreadLock) {
+         f.executingThread = Thread.currentThread();
+      }
+      try {
+         action.accept(result, otherResult);
+      } finally {
+         synchronized (f.executingThreadLock) {
+            f.executingThread = null;
+         }
+      }
+   }
+
+   private <U> U interruptiblyApply(final int futureId, final T result, final Function<? super T, ? extends U> fn) {
+      final var f = NewIncompleteFutureHolder.lookup(futureId);
+      synchronized (f.executingThreadLock) {
+         f.executingThread = Thread.currentThread();
+      }
+      try {
+         return fn.apply(result);
+      } finally {
+         synchronized (f.executingThreadLock) {
+            f.executingThread = null;
+         }
+      }
+   }
+
+   private <U, V> V interruptiblyCombine(final int futureId, final T result, final U otherResult,
+         final BiFunction<? super T, ? super U, ? extends V> fn) {
+      final var f = NewIncompleteFutureHolder.lookup(futureId);
+      synchronized (f.executingThreadLock) {
+         f.executingThread = Thread.currentThread();
+      }
+      try {
+         return fn.apply(result, otherResult);
+      } finally {
+         synchronized (f.executingThreadLock) {
+            f.executingThread = null;
+         }
+      }
+   }
+
+   private T interruptiblyComplete(final int futureId, final Supplier<? extends T> supplier) {
+      final var f = NewIncompleteFutureHolder.lookup(futureId);
+      synchronized (f.executingThreadLock) {
+         f.executingThread = Thread.currentThread();
+      }
+      try {
+         return supplier.get();
+      } finally {
+         synchronized (f.executingThreadLock) {
+            f.executingThread = null;
+         }
+      }
+   }
+
+   private <U> U interruptiblyHandle(final int futureId, final T result, final @Nullable Throwable ex,
+         final BiFunction<? super T, @Nullable Throwable, ? extends U> fn) {
+      final var f = NewIncompleteFutureHolder.lookup(futureId);
+      synchronized (f.executingThreadLock) {
+         f.executingThread = Thread.currentThread();
+      }
+      try {
+         return fn.apply(result, ex);
+      } finally {
+         synchronized (f.executingThreadLock) {
+            f.executingThread = null;
+         }
+      }
+   }
+
+   private void interruptiblyRun(final int futureId, final Runnable action) {
+      final var f = NewIncompleteFutureHolder.lookup(futureId);
+      synchronized (f.executingThreadLock) {
+         f.executingThread = Thread.currentThread();
+      }
+      try {
+         action.run();
+      } finally {
+         synchronized (f.executingThreadLock) {
+            f.executingThread = null;
+         }
+      }
+   }
+
+   private <U> CompletionStage<U> interruptiblyThenCompose(final int futureId, final T result,
+         final Function<? super T, ? extends CompletionStage<U>> fn) {
+      final var f = NewIncompleteFutureHolder.lookup(futureId);
+      synchronized (f.executingThreadLock) {
+         f.executingThread = Thread.currentThread();
+      }
+
+      try {
+         final var stage = fn.apply(result);
+         if (stage instanceof final ExtendedFuture<?> fut && fut.isCancellableByDependents()) {
+            f.cancellablePrecedingStages.add(fut);
+         }
+         return stage;
+      } finally {
+         synchronized (f.executingThreadLock) {
+            f.executingThread = null;
+         }
+      }
+   }
+
+   private void interruptiblyWhenComplete(final int futureId, final @Nullable T result, final @Nullable Throwable ex,
+         final BiConsumer<? super @Nullable T, ? super @Nullable Throwable> action) {
+      final var f = NewIncompleteFutureHolder.lookup(futureId);
+      synchronized (f.executingThreadLock) {
+         f.executingThread = Thread.currentThread();
+      }
+      try {
+         action.accept(result, ex);
+      } finally {
+         synchronized (f.executingThreadLock) {
+            f.executingThread = null;
+         }
+      }
    }
 
    public boolean isCancellableByDependents() {
@@ -671,10 +972,17 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    /**
-    * @return if {@code cancel(true)} will result in thread interruption
+    * @return if this stage is interruptible, i.e. {@code cancel(true)} will result in thread interruption
     */
    public boolean isInterruptible() {
       return false;
+   }
+
+   /**
+    * @return if new stages are interruptible
+    */
+   public boolean isInterruptibleStages() {
+      return interruptibleStages;
    }
 
    /**
@@ -686,7 +994,14 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public <V> ExtendedFuture<V> newIncompleteFuture() {
-      final var f = new ExtendedFuture<V>(defaultExecutor, cancellableByDependents, null);
+      final ExtendedFuture<V> f;
+      if (interruptibleStages) {
+         final var fInterruptible = new InterruptibleFuture<V>(defaultExecutor, cancellableByDependents, interruptibleStages);
+         NewIncompleteFutureHolder.store(fInterruptible);
+         f = fInterruptible;
+      } else {
+         f = new ExtendedFuture<>(defaultExecutor, cancellableByDependents, interruptibleStages, null);
+      }
       if (cancellableByDependents && !isCancelled()) {
          f.cancellablePrecedingStages.add(this);
       }
@@ -695,136 +1010,247 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public ExtendedFuture<@Nullable Void> runAfterBoth(final CompletionStage<?> other, final Runnable action) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.runAfterBoth(other, () -> interruptiblyRun(fId, action));
+      }
       return (ExtendedFuture<@Nullable Void>) super.runAfterBoth(other, action);
    }
 
    public ExtendedFuture<@Nullable Void> runAfterBoth(final CompletionStage<?> other, final ThrowingRunnable<?> action) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.runAfterBoth(other, () -> interruptiblyRun(fId, action));
+      }
       return (ExtendedFuture<@Nullable Void>) super.runAfterBoth(other, action);
    }
 
    @Override
    public ExtendedFuture<@Nullable Void> runAfterBothAsync(final CompletionStage<?> other, final Runnable action) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.runAfterBothAsync(other, () -> interruptiblyRun(fId, action));
+      }
       return (ExtendedFuture<@Nullable Void>) super.runAfterBothAsync(other, action);
    }
 
    @Override
    public ExtendedFuture<@Nullable Void> runAfterBothAsync(final CompletionStage<?> other, final Runnable action, final Executor executor) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.runAfterBothAsync(other, () -> interruptiblyRun(fId, action), executor);
+      }
       return (ExtendedFuture<@Nullable Void>) super.runAfterBothAsync(other, action, executor);
    }
 
    public ExtendedFuture<@Nullable Void> runAfterBothAsync(final CompletionStage<?> other, final ThrowingRunnable<?> action) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.runAfterBothAsync(other, () -> interruptiblyRun(fId, action));
+      }
       return (ExtendedFuture<@Nullable Void>) super.runAfterBothAsync(other, action);
    }
 
    public ExtendedFuture<@Nullable Void> runAfterBothAsync(final CompletionStage<?> other, final ThrowingRunnable<?> action,
          final Executor executor) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.runAfterBothAsync(other, () -> interruptiblyRun(fId, action), executor);
+      }
       return (ExtendedFuture<@Nullable Void>) super.runAfterBothAsync(other, action, executor);
    }
 
    @Override
    public ExtendedFuture<@Nullable Void> runAfterEither(final CompletionStage<?> other, final Runnable action) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.runAfterEither(other, () -> interruptiblyRun(fId, action));
+      }
       return (ExtendedFuture<@Nullable Void>) super.runAfterEither(other, action);
    }
 
    public ExtendedFuture<@Nullable Void> runAfterEither(final CompletionStage<?> other, final ThrowingRunnable<?> action) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.runAfterEither(other, () -> interruptiblyRun(fId, action));
+      }
       return (ExtendedFuture<@Nullable Void>) super.runAfterEither(other, action);
    }
 
    @Override
    public ExtendedFuture<@Nullable Void> runAfterEitherAsync(final CompletionStage<?> other, final Runnable action) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.runAfterEitherAsync(other, () -> interruptiblyRun(fId, action));
+      }
       return (ExtendedFuture<@Nullable Void>) super.runAfterEitherAsync(other, action);
    }
 
    @Override
    public ExtendedFuture<@Nullable Void> runAfterEitherAsync(final CompletionStage<?> other, final Runnable action,
          final Executor executor) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.runAfterEitherAsync(other, () -> interruptiblyRun(fId, action), executor);
+      }
       return (ExtendedFuture<@Nullable Void>) super.runAfterEitherAsync(other, action, executor);
    }
 
    public ExtendedFuture<@Nullable Void> runAfterEitherAsync(final CompletionStage<?> other, final ThrowingRunnable<?> action) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.runAfterEitherAsync(other, () -> interruptiblyRun(fId, action));
+      }
       return (ExtendedFuture<@Nullable Void>) super.runAfterEitherAsync(other, action);
    }
 
    public ExtendedFuture<@Nullable Void> runAfterEitherAsync(final CompletionStage<?> other, final ThrowingRunnable<?> action,
          final Executor executor) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.runAfterEitherAsync(other, () -> interruptiblyRun(fId, action), executor);
+      }
       return (ExtendedFuture<@Nullable Void>) super.runAfterEitherAsync(other, action, executor);
    }
 
    @Override
    public ExtendedFuture<@Nullable Void> thenAccept(final Consumer<? super T> action) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.thenAccept(result -> interruptiblyAccept(fId, result, action));
+      }
       return (ExtendedFuture<@Nullable Void>) super.thenAccept(action);
    }
 
    public ExtendedFuture<@Nullable Void> thenAccept(final ThrowingConsumer<? super T, ?> action) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.thenAccept(result -> interruptiblyAccept(fId, result, action));
+      }
       return (ExtendedFuture<@Nullable Void>) super.thenAccept(action);
    }
 
    @Override
    public ExtendedFuture<@Nullable Void> thenAcceptAsync(final Consumer<? super T> action) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.thenAcceptAsync(result -> interruptiblyAccept(fId, result, action));
+      }
       return (ExtendedFuture<@Nullable Void>) super.thenAcceptAsync(action);
    }
 
    @Override
    public ExtendedFuture<@Nullable Void> thenAcceptAsync(final Consumer<? super T> action, final Executor executor) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.thenAcceptAsync(result -> interruptiblyAccept(fId, result, action), executor);
+      }
       return (ExtendedFuture<@Nullable Void>) super.thenAcceptAsync(action, executor);
    }
 
    public ExtendedFuture<@Nullable Void> thenAcceptAsync(final ThrowingConsumer<? super T, ?> action) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.thenAcceptAsync(result -> interruptiblyAccept(fId, result, action));
+      }
       return (ExtendedFuture<@Nullable Void>) super.thenAcceptAsync(action);
    }
 
    public ExtendedFuture<@Nullable Void> thenAcceptAsync(final ThrowingConsumer<? super T, ?> action, final Executor executor) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.thenAcceptAsync(result -> interruptiblyAccept(fId, result, action), executor);
+      }
       return (ExtendedFuture<@Nullable Void>) super.thenAcceptAsync(action, executor);
    }
 
    @Override
    public <U> ExtendedFuture<@Nullable Void> thenAcceptBoth(final CompletionStage<? extends U> other,
          final BiConsumer<? super T, ? super U> action) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.thenAcceptBoth(other, (result, otherResult) -> interruptiblyAcceptBoth(fId, result,
+            otherResult, action));
+      }
       return (ExtendedFuture<@Nullable Void>) super.thenAcceptBoth(other, action);
    }
 
    @Override
    public <U> ExtendedFuture<@Nullable Void> thenAcceptBothAsync(final CompletionStage<? extends U> other,
          final BiConsumer<? super T, ? super U> action) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.thenAcceptBothAsync(other, (result, otherResult) -> interruptiblyAcceptBoth(fId,
+            result, otherResult, action));
+      }
       return (ExtendedFuture<@Nullable Void>) super.thenAcceptBothAsync(other, action);
    }
 
    @Override
    public <U> ExtendedFuture<@Nullable Void> thenAcceptBothAsync(final CompletionStage<? extends U> other,
          final BiConsumer<? super T, ? super U> action, final Executor executor) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.thenAcceptBothAsync(other, (result, otherResult) -> interruptiblyAcceptBoth(fId,
+            result, otherResult, action), executor);
+      }
       return (ExtendedFuture<@Nullable Void>) super.thenAcceptBothAsync(other, action, executor);
    }
 
    @Override
    @SuppressWarnings("unchecked")
    public <U> ExtendedFuture<U> thenApply(final Function<? super T, ? extends U> fn) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<U>) super.thenApply(result -> interruptiblyApply(fId, result, fn));
+      }
       return (ExtendedFuture<U>) super.thenApply(fn);
    }
 
    @SuppressWarnings("unchecked")
    public <U> ExtendedFuture<U> thenApply(final ThrowingFunction<? super T, ? extends U, ?> fn) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<U>) super.thenApply(result -> interruptiblyApply(fId, result, fn));
+      }
       return (ExtendedFuture<U>) super.thenApply(fn);
    }
 
    @Override
    @SuppressWarnings("unchecked")
    public <U> ExtendedFuture<U> thenApplyAsync(final Function<? super T, ? extends U> fn) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<U>) super.thenApplyAsync(result -> interruptiblyApply(fId, result, fn));
+      }
       return (ExtendedFuture<U>) super.thenApplyAsync(fn);
    }
 
    @Override
    @SuppressWarnings("unchecked")
    public <U> ExtendedFuture<U> thenApplyAsync(final Function<? super T, ? extends U> fn, final Executor executor) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<U>) super.thenApplyAsync(result -> interruptiblyApply(fId, result, fn), executor);
+      }
       return (ExtendedFuture<U>) super.thenApplyAsync(fn, executor);
    }
 
    @SuppressWarnings("unchecked")
    public <U> ExtendedFuture<U> thenApplyAsync(final ThrowingFunction<? super T, ? extends U, ?> fn) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<U>) super.thenApplyAsync(result -> interruptiblyApply(fId, result, fn));
+      }
       return (ExtendedFuture<U>) super.thenApplyAsync(fn);
    }
 
    @SuppressWarnings("unchecked")
    public <U> ExtendedFuture<U> thenApplyAsync(final ThrowingFunction<? super T, ? extends U, ?> fn, final Executor executor) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<U>) super.thenApplyAsync(result -> interruptiblyApply(fId, result, fn), executor);
+      }
       return (ExtendedFuture<U>) super.thenApplyAsync(fn, executor);
    }
 
@@ -832,6 +1258,10 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @SuppressWarnings("unchecked")
    public <U, V> ExtendedFuture<V> thenCombine(final CompletionStage<? extends U> other,
          final BiFunction<? super T, ? super U, ? extends V> fn) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<V>) super.thenCombine(other, (result, otherResult) -> interruptiblyCombine(fId, result, otherResult, fn));
+      }
       return (ExtendedFuture<V>) super.thenCombine(other, fn);
    }
 
@@ -839,6 +1269,11 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @SuppressWarnings("unchecked")
    public <U, V> ExtendedFuture<V> thenCombineAsync(final CompletionStage<? extends U> other,
          final BiFunction<? super T, ? super U, ? extends V> fn) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<V>) super.thenCombineAsync(other, (result, otherResult) -> interruptiblyCombine(fId, result, otherResult,
+            fn));
+      }
       return (ExtendedFuture<V>) super.thenCombineAsync(other, fn);
    }
 
@@ -846,64 +1281,117 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @SuppressWarnings("unchecked")
    public <U, V> ExtendedFuture<V> thenCombineAsync(final CompletionStage<? extends U> other,
          final BiFunction<? super T, ? super U, ? extends V> fn, final Executor executor) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<V>) super.thenCombineAsync(other, (result, otherResult) -> interruptiblyCombine(fId, result, otherResult,
+            fn), executor);
+      }
       return (ExtendedFuture<V>) super.thenCombineAsync(other, fn, executor);
    }
 
    @Override
    public <U> ExtendedFuture<U> thenCompose(final Function<? super T, ? extends CompletionStage<U>> fn) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<U>) super.thenCompose(result -> interruptiblyThenCompose(fId, result, fn));
+      }
       return (ExtendedFuture<U>) super.thenCompose(fn);
    }
 
    @Override
    public <U> ExtendedFuture<U> thenComposeAsync(final Function<? super T, ? extends CompletionStage<U>> fn) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<U>) super.thenComposeAsync(result -> interruptiblyThenCompose(fId, result, fn));
+      }
       return (ExtendedFuture<U>) super.thenComposeAsync(fn);
    }
 
    @Override
    public <U> ExtendedFuture<U> thenComposeAsync(final Function<? super T, ? extends CompletionStage<U>> fn, final Executor executor) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<U>) super.thenComposeAsync(result -> interruptiblyThenCompose(fId, result, fn), executor);
+      }
       return (ExtendedFuture<U>) super.thenComposeAsync(fn, executor);
    }
 
    @Override
    public ExtendedFuture<@Nullable Void> thenRun(final Runnable action) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.thenRun(() -> interruptiblyRun(fId, action));
+      }
       return (ExtendedFuture<@Nullable Void>) super.thenRun(action);
    }
 
    public ExtendedFuture<@Nullable Void> thenRun(final ThrowingRunnable<?> action) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.thenRun(() -> interruptiblyRun(fId, action));
+      }
       return (ExtendedFuture<@Nullable Void>) super.thenRun(action);
    }
 
    @Override
    public ExtendedFuture<@Nullable Void> thenRunAsync(final Runnable action) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.thenRunAsync(() -> interruptiblyRun(fId, action));
+      }
       return (ExtendedFuture<@Nullable Void>) super.thenRunAsync(action);
    }
 
    @Override
    public ExtendedFuture<@Nullable Void> thenRunAsync(final Runnable action, final Executor executor) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.thenRunAsync(() -> interruptiblyRun(fId, action), executor);
+      }
       return (ExtendedFuture<@Nullable Void>) super.thenRunAsync(action, executor);
    }
 
    public ExtendedFuture<@Nullable Void> thenRunAsync(final ThrowingRunnable<?> action) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.thenRunAsync(() -> interruptiblyRun(fId, action));
+      }
       return (ExtendedFuture<@Nullable Void>) super.thenRunAsync(action);
    }
 
    public ExtendedFuture<@Nullable Void> thenRunAsync(final ThrowingRunnable<?> action, final Executor executor) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<@Nullable Void>) super.thenRunAsync(() -> interruptiblyRun(fId, action), executor);
+      }
       return (ExtendedFuture<@Nullable Void>) super.thenRunAsync(action, executor);
    }
 
    @Override
    public ExtendedFuture<T> whenComplete(final BiConsumer<? super @Nullable T, ? super @Nullable Throwable> action) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<T>) super.whenComplete((result, ex) -> interruptiblyWhenComplete(fId, result, ex, action));
+      }
       return (ExtendedFuture<T>) super.whenComplete(action);
    }
 
    @Override
    public ExtendedFuture<T> whenCompleteAsync(final BiConsumer<? super @Nullable T, ? super @Nullable Throwable> action) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<T>) super.whenCompleteAsync((result, ex) -> interruptiblyWhenComplete(fId, result, ex, action));
+      }
       return (ExtendedFuture<T>) super.whenCompleteAsync(action);
    }
 
    @Override
    public ExtendedFuture<T> whenCompleteAsync(final BiConsumer<? super @Nullable T, ? super @Nullable Throwable> action,
          final Executor executor) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateLookupId();
+         return (ExtendedFuture<T>) super.whenCompleteAsync((result, ex) -> interruptiblyWhenComplete(fId, result, ex, action), executor);
+      }
       return (ExtendedFuture<T>) super.whenCompleteAsync(action, executor);
    }
 
@@ -920,7 +1408,16 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          return this;
 
       return isInterruptible() //
-            ? new ExtendedFutureInterruptible<>(defaultExecutor, cancellableByDependents, this)
-            : new ExtendedFuture<>(defaultExecutor, cancellableByDependents, this);
+            ? new InterruptibleFutureWrapper<>(defaultExecutor, cancellableByDependents, interruptibleStages, this)
+            : new ExtendedFuture<>(defaultExecutor, cancellableByDependents, interruptibleStages, this);
+   }
+
+   public ExtendedFuture<T> withInterruptibleStages(final boolean interruptibleStages) {
+      if (interruptibleStages == this.interruptibleStages)
+         return this;
+
+      return isInterruptible() //
+            ? new InterruptibleFutureWrapper<>(defaultExecutor, cancellableByDependents, interruptibleStages, this)
+            : new ExtendedFuture<>(defaultExecutor, cancellableByDependents, interruptibleStages, this);
    }
 }
