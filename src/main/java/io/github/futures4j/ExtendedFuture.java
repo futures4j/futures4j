@@ -391,7 +391,21 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          }
 
          @Override
+         public ExtendedFuture<T> completeAsync(final ThrowingSupplier<? extends T, ?> supplier) {
+            if (throwOnMutationAttempt)
+               throw new UnsupportedOperationException(this + " is read-only.");
+            return this;
+         }
+
+         @Override
          public ExtendedFuture<T> completeAsync(final Supplier<? extends T> supplier, final Executor executor) {
+            if (throwOnMutationAttempt)
+               throw new UnsupportedOperationException(this + " is read-only.");
+            return this;
+         }
+
+         @Override
+         public ExtendedFuture<T> completeAsync(final ThrowingSupplier<? extends T, ?> supplier, final Executor executor) {
             if (throwOnMutationAttempt)
                throw new UnsupportedOperationException(this + " is read-only.");
             return this;
