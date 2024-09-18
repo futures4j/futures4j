@@ -5,6 +5,8 @@
  */
 package io.github.futures4j;
 
+import java.lang.System.Logger;
+import java.lang.System.Logger.Level;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Optional;
@@ -520,6 +522,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          public boolean cancel(final boolean mayInterruptIfRunning) {
             if (throwOnMutationAttempt)
                throw new UnsupportedOperationException(this + " is read-only.");
+            LOG.log(Level.WARNING, "Attempted to cancel a read-only future: " + this);
             return isCancelled();
          }
 
@@ -527,6 +530,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          public boolean complete(final T value) {
             if (throwOnMutationAttempt)
                throw new UnsupportedOperationException(this + " is read-only.");
+            LOG.log(Level.WARNING, "Attempted to complete a read-only future: " + this);
             return false;
          }
 
@@ -534,6 +538,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          public ExtendedFuture<T> completeAsync(final Supplier<? extends T> supplier) {
             if (throwOnMutationAttempt)
                throw new UnsupportedOperationException(this + " is read-only.");
+            LOG.log(Level.WARNING, "Attempted to complete a read-only future: " + this);
             return this;
          }
 
@@ -541,6 +546,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          public ExtendedFuture<T> completeAsync(final ThrowingSupplier<? extends T, ?> supplier) {
             if (throwOnMutationAttempt)
                throw new UnsupportedOperationException(this + " is read-only.");
+            LOG.log(Level.WARNING, "Attempted to complete a read-only future: " + this);
             return this;
          }
 
@@ -548,6 +554,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          public ExtendedFuture<T> completeAsync(final Supplier<? extends T> supplier, final Executor executor) {
             if (throwOnMutationAttempt)
                throw new UnsupportedOperationException(this + " is read-only.");
+            LOG.log(Level.WARNING, "Attempted to complete a read-only future: " + this);
             return this;
          }
 
@@ -555,6 +562,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          public ExtendedFuture<T> completeAsync(final ThrowingSupplier<? extends T, ?> supplier, final Executor executor) {
             if (throwOnMutationAttempt)
                throw new UnsupportedOperationException(this + " is read-only.");
+            LOG.log(Level.WARNING, "Attempted to complete a read-only future: " + this);
             return this;
          }
 
@@ -562,6 +570,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          public boolean completeExceptionally(final Throwable ex) {
             if (throwOnMutationAttempt)
                throw new UnsupportedOperationException(this + " is read-only.");
+            LOG.log(Level.WARNING, "Attempted to complete a read-only future: " + this);
             return false;
          }
 
@@ -569,6 +578,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          public ExtendedFuture<T> completeOnTimeout(final T value, final long timeout, final TimeUnit unit) {
             if (throwOnMutationAttempt)
                throw new UnsupportedOperationException(this + " is read-only.");
+            LOG.log(Level.WARNING, "Attempted to complete a read-only future: " + this);
             return this;
          }
 
@@ -579,12 +589,16 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
          @Override
          public void obtrudeException(final Throwable ex) {
-            throw new UnsupportedOperationException(this + " is read-only.");
+            if (throwOnMutationAttempt)
+               throw new UnsupportedOperationException(this + " is read-only.");
+            LOG.log(Level.WARNING, "Attempted to obtrude a read-only future: " + this);
          }
 
          @Override
          public void obtrudeValue(final T value) {
-            throw new UnsupportedOperationException(this + " is read-only.");
+            if (throwOnMutationAttempt)
+               throw new UnsupportedOperationException(this + " is read-only.");
+            LOG.log(Level.WARNING, "Attempted to obtrude a read-only future: " + this);
          }
       };
    }
