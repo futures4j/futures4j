@@ -14,6 +14,7 @@
    1. [The `ExtendedFuture` class](#ExtendedFuture)
    1. [The `FuturesContext` class](#FuturesContext)
    1. [The `Futures` utility class](#Futures)
+   1. [The `CompletionState` enum](#CompletionState)
    1. [Building from Sources](#building)
 1. [License](#license)
 
@@ -81,8 +82,11 @@ You need to add this repository configuration to your Maven `settings.xml`:
 
 ### <a name="ExtendedFuture"></a>The `ExtendedFuture` class
 
-The current centerpiece of this library is the class [io.github.futures4j.ExtendedFuture](src/main/java/io/github/futures4j/ExtendedFuture.java), an enhanced version of
-Java's [java.util.concurrent.CompletableFuture](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/concurrent/CompletableFuture.html) class.
+The [io.github.futures4j.ExtendedFuture](src/main/java/io/github/futures4j/ExtendedFuture.java "Source code")
+[ 📘 ](https://futures4j.github.io/futures4j/javadoc/io/github/futures4j/ExtendedFuture.html "JavaDoc")
+serves as a drop-in replacement and enhanced version of Java's
+[java.util.concurrent.CompletableFuture](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/concurrent/CompletableFuture.html) class:
+
 1. It supports task **thread interruption** via [ExtendedFuture.cancel(true)](https://futures4j.github.io/futures4j/javadoc/io/github/futures4j/ExtendedFuture.html#cancel(boolean)),
    which is not possible using [CompletableFuture.cancel(boolean)](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/concurrent/CompletableFuture.html#cancel(boolean)).
    This is for example discussed at:
@@ -164,7 +168,7 @@ Java's [java.util.concurrent.CompletableFuture](https://docs.oracle.com/en/java/
    });
    ```
 
-1. It allows creating a **read-only views** of futures via [ExtendedFuture.asReadOnly(ReadOnlyMode)](https://futures4j.github.io/futures4j/javadoc/io/github/futures4j/ExtendedFuture.html#asReadOnly(io.github.futures4j.ExtendedFuture.ReadOnlyMode)):.
+1. It allows creating **read-only views** of futures via [ExtendedFuture.asReadOnly(ReadOnlyMode)](https://futures4j.github.io/futures4j/javadoc/io/github/futures4j/ExtendedFuture.html#asReadOnly(io.github.futures4j.ExtendedFuture.ReadOnlyMode)):.
    ```java
    ExtendendFuture myFuture = ExtendedFuture.supplyAsync(...)
 
@@ -207,7 +211,9 @@ Java's [java.util.concurrent.CompletableFuture](https://docs.oracle.com/en/java/
 
 ### <a name="FuturesContext"></a>The `FuturesContext` class
 
-The `FuturesContext` allows tracking multiple futures/stages, e.g. to later cancel all at the same time.
+The [io.github.futures4j.FuturesContext](src/main/java/io/github/futures4j/FuturesContext.java "Source code")
+[ 📘 ](https://futures4j.github.io/futures4j/javadoc/io/github/futures4j/FuturesContext.html "JavaDoc")
+class allows tracking multiple futures/stages, to e.g. later cancel all at the same time or to retrieve all results.
 
 ```java
 final var ctx = new FuturesContext<>();
@@ -245,12 +251,18 @@ if (...) {
 } else {
    var results = ctx.getAllNow(); // gets the results from step 1 and the innerFuture if available
 }
+
+// derive a combined future from the
+var combinedFuture = ctx.combineAll().toList();
+combinedFuture.thenAccept(results -> /* ... */);
 ```
 
 
 ### <a name="Futures"></a>The `Futures` utility class
 
-The `Futures` class provides a set of utility methods for managing and combining Java `Future` and `CompletableFuture` instances.
+The [io.github.futures4j.Futures](src/main/java/io/github/futures4j/Futures.java "Source code")
+[ 📘 ](https://futures4j.github.io/futures4j/javadoc/io/github/futures4j/Futures.html "JavaDoc")
+class provides a set of utility methods for managing and combining Java `Future` and `CompletableFuture` instances.
 It simplifies handling asynchronous computations by offering functionality to cancel, combine, and retrieve results from multiple futures.
 
 1. Cancelling Futures
@@ -330,6 +342,23 @@ It simplifies handling asynchronous computations by offering functionality to ca
             // Handle exception
         }
         ```
+
+### <a name="CompletionState"></a>The `CompletionState` enum
+
+The [io.github.futures4j.CompletionState](src/main/java/io/github/futures4j/CompletionState.java "Source code")
+[📘](https://futures4j.github.io/futures4j/javadoc/io/github/futures4j/CompletionState.html "JavaDoc")
+enum allows switching on a future's completion state:
+
+```java
+Future<String> future = ...;
+
+switch (CompletionState.of(future)) {
+  case CANCELLED -> /* ... */;
+  case COMPLETED -> /* ... */;
+  case COMPLETED_EXCEPTIONALLY -> /* ... */;
+  case INCOMPLETE -> /* ... */;
+}
+```
 
 
 ### <a id="building"></a>Building from Sources

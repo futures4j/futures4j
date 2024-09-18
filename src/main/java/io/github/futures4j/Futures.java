@@ -28,6 +28,8 @@ import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.eclipse.jdt.annotation.Nullable;
 
 /**
+ * Utility class for working with {@link Future} instances.
+ *
  * @author <a href="https://sebthom.de/">Sebastian Thomschke</a>
  */
 public abstract class Futures {
