@@ -41,8 +41,8 @@ import io.github.futures4j.util.ThrowingSupplier;
  * <li>allows dependent stages cancel preceding stages, controllable via {@link #asCancellableByDependents(boolean)}
  * <li>allows running tasks that throw checked exceptions via e.g. {@link #runAsync(ThrowingRunnable)}, etc.
  * <li>allows creating a read-only view of a future using {@link #asReadOnly(ReadOnlyMode)}
- * <li>allows defining a default executor for this future and all subsequent stages e.g. via {@link #createWithDefaultExecutor(Executor)} or
- * {@link #withDefaultExecutor(Executor)}
+ * <li>allows defining a default executor for this future and all subsequent stages e.g. via {@link #withDefaultExecutor(Executor)} or
+ * {@link Builder#withDefaultExecutor(Executor)}
  * <li>offers additional convenience method such as {@link #isCompleted()}, {@link #getCompletionState()},
  * {@link #getNowOptional()}, {@link #getOptional(long, TimeUnit)},
  * {@link #getNowOrFallback(Object)}, {@link #getOrFallback(long, TimeUnit, Object)}
@@ -254,15 +254,6 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    /**
-    * @param defaultExecutor default executor for subsequent stages
-    */
-   public static <V> ExtendedFuture<V> completedFutureWithDefaultExecutor(final V value, final Executor defaultExecutor) {
-      final var f = new ExtendedFuture<V>(defaultExecutor, false, true, null);
-      f.complete(value);
-      return f;
-   }
-
-   /**
     * @return a new {@link ExtendedFuture} with {@link #isCancellableByDependents()} set to {@code false} and
     *         {@link #isInterruptibleStages()} set to {@code true}.
     */
@@ -270,33 +261,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       return new ExtendedFuture<>(null, false, true, null);
    }
 
-   /**
-    * @return a new {@link ExtendedFuture} with {@link #isCancellableByDependents()} set to {@code true} and
-    *         {@link #isInterruptibleStages()} set to {@code true}.
-    */
-   public static <V> ExtendedFuture<V> createCancellableByDependents() {
-      return new ExtendedFuture<>(null, true, true, null);
-   }
-
-   /**
-    * @return a new {@link ExtendedFuture} with the given default executor for all subsequent stages and
-    *         {@link #isCancellableByDependents()} set to {@code false} and {@link #isInterruptibleStages()} set to {@code true}.
-    */
-   public static <V> ExtendedFuture<V> createWithDefaultExecutor(final Executor defaultExecutor) {
-      return new ExtendedFuture<>(defaultExecutor, false, true, null);
-   }
-
    public static <V> ExtendedFuture<V> failedFuture(final Throwable ex) {
       final var f = new ExtendedFuture<V>(null, false, true, null);
-      f.completeExceptionally(ex);
-      return f;
-   }
-
-   /**
-    * @param defaultExecutor default executor for subsequent stages
-    */
-   public static <V> ExtendedFuture<V> failedFutureWithDefaultExecutor(final Throwable ex, final Executor defaultExecutor) {
-      final var f = new ExtendedFuture<V>(defaultExecutor, false, true, null);
       f.completeExceptionally(ex);
       return f;
    }
@@ -331,7 +297,9 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    public static ExtendedFuture<@Nullable Void> runAsyncWithDefaultExecutor(final ThrowingRunnable<?> runnable,
          final Executor defaultExecutor) {
-      return completedFutureWithDefaultExecutor(null, defaultExecutor).thenRunAsync(runnable);
+      final var f = new ExtendedFuture<>(defaultExecutor, false, true, null);
+      f.complete(null);
+      return f.thenRunAsync(runnable);
    }
 
    public static <V> ExtendedFuture<V> supplyAsync(final Supplier<V> supplier) {
@@ -352,7 +320,9 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    public static <V> ExtendedFuture<V> supplyAsyncWithDefaultExecutor(final ThrowingSupplier<V, ?> supplier,
          final Executor defaultExecutor) {
-      return completedFutureWithDefaultExecutor(null, defaultExecutor).thenApplyAsync(unused -> supplier.get());
+      final var f = new ExtendedFuture<>(defaultExecutor, false, true, null);
+      f.complete(null);
+      return f.thenApplyAsync(unused -> supplier.get());
    }
 
    protected final Collection<Future<?>> cancellablePrecedingStages;

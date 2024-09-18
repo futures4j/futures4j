@@ -269,7 +269,7 @@ class ExtendedFutureTest extends AbstractFutureTest {
    void testWithDefaultExecutor() {
       final var defaultExecutor1 = Executors.newSingleThreadExecutor();
       final var defaultExecutor2 = Executors.newSingleThreadExecutor();
-      final var originalFuture = ExtendedFuture.createWithDefaultExecutor(defaultExecutor1);
+      final var originalFuture = ExtendedFuture.builder().withDefaultExecutor(defaultExecutor1).build();
       final var sameFuture = originalFuture.withDefaultExecutor(defaultExecutor1);
       final var newFuture = originalFuture.withDefaultExecutor(defaultExecutor2);
 
