@@ -8,9 +8,11 @@ package io.github.futures4j;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.stream.Stream;
 
 /**
  * A context that manages multiple {@link Future futures}/stages.
@@ -25,13 +27,13 @@ public class FuturesContext<T> {
       CANCELLING_WITH_INTERRUPT
    }
 
-   private final Set<Future<? extends T>> futures = ConcurrentHashMap.newKeySet();
+   private final Set<CompletableFuture<? extends T>> futures = ConcurrentHashMap.newKeySet();
    private CancellationMode mode = CancellationMode.NONE;
 
    /**
     * Cancels all registered futures that are not yet complete.
     *
-    * Once this method was invoked further futures added via {@link #register(Future)} are cancelled too.
+    * Once this method was invoked further futures added via {@link #register(CompletableFuture)} are cancelled too.
     *
     * @param mayInterruptIfRunning if {@code true}, ongoing tasks will be interrupted if supported;
     *           otherwise, they will be allowed to complete.
@@ -52,7 +54,14 @@ public class FuturesContext<T> {
       });
    }
 
-   public void deregister(final Future<?> future) {
+   /**
+    * Creates a future combiner from the current list of registered futures.
+    */
+   public Futures.Combiner<? extends T> combineAll() {
+      return Futures.combine(futures);
+   }
+
+   public void deregister(final CompletableFuture<?> future) {
       futures.remove(future);
    }
 
@@ -109,6 +118,13 @@ public class FuturesContext<T> {
    }
 
    /**
+    * @return a stream of all registered futures
+    */
+   public Stream<CompletableFuture<? extends T>> getFutures() {
+      return futures.stream();
+   }
+
+   /**
     * Checks whether there are any incomplete futures still being tracked.
     *
     * @return {@code true} if there are incomplete futures, {@code false} otherwise.
@@ -129,7 +145,7 @@ public class FuturesContext<T> {
       }
    }
 
-   public void register(final Future<? extends T> future) {
+   public void register(final CompletableFuture<? extends T> future) {
       futures.add(future);
 
       synchronized (this) {
