@@ -3,33 +3,33 @@
   <groupId>io.github.futures4j</groupId>
   <artifactId>futures4j</artifactId>
   <versioning>
-    <lastUpdated>20240918101522</lastUpdated>
+    <lastUpdated>20240918110205</lastUpdated>
     <snapshot>
-      <timestamp>20240918.101522</timestamp>
-      <buildNumber>5</buildNumber>
+      <timestamp>20240918.110205</timestamp>
+      <buildNumber>6</buildNumber>
     </snapshot>
     <snapshotVersions>
       <snapshotVersion>
         <extension>pom</extension>
-        <value>1.0.0-20240918.101522-5</value>
-        <updated>20240918101522</updated>
+        <value>1.0.0-20240918.110205-6</value>
+        <updated>20240918110205</updated>
       </snapshotVersion>
       <snapshotVersion>
         <extension>jar</extension>
-        <value>1.0.0-20240918.101522-5</value>
-        <updated>20240918101522</updated>
+        <value>1.0.0-20240918.110205-6</value>
+        <updated>20240918110205</updated>
       </snapshotVersion>
       <snapshotVersion>
         <classifier>sources</classifier>
         <extension>jar</extension>
-        <value>1.0.0-20240918.101522-5</value>
-        <updated>20240918101522</updated>
+        <value>1.0.0-20240918.110205-6</value>
+        <updated>20240918110205</updated>
       </snapshotVersion>
       <snapshotVersion>
         <classifier>javadoc</classifier>
         <extension>jar</extension>
-        <value>1.0.0-20240918.101522-5</value>
-        <updated>20240918101522</updated>
+        <value>1.0.0-20240918.110205-6</value>
+        <updated>20240918110205</updated>
       </snapshotVersion>
     </snapshotVersions>
   </versioning>
