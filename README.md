@@ -12,6 +12,7 @@
 1. [Usage](#usage)
    1. [Binaries](#binaries)
    1. [The `ExtendedFuture` class](#ExtendedFuture)
+   1. [The `FuturesContext` class](#FuturesContext)
    1. [The `Futures` utility class](#Futures)
    1. [Building from Sources](#building)
 1. [License](#license)
@@ -116,8 +117,8 @@ Java's [java.util.concurrent.CompletableFuture](https://docs.oracle.com/en/java/
          .thenAccept(...); // step 4
 
    if (...) {
-       // cancel the futures of step 1 to step 4
-       myCancellableChain.cancel(true);
+      // cancel the futures of step 1 to step 4
+      myCancellableChain.cancel(true);
    }
    ```
 
@@ -139,8 +140,8 @@ Java's [java.util.concurrent.CompletableFuture](https://docs.oracle.com/en/java/
          .thenAccept(...); // step 4
 
    if (...) {
-       // cancel the futures of step 1 to step 4 and the innerFuture
-       myCancellableChain.cancel(true);
+      // cancel the futures of step 1 to step 4 and the innerFuture
+      myCancellableChain.cancel(true);
    }
    ```
 
@@ -202,6 +203,50 @@ Java's [java.util.concurrent.CompletableFuture](https://docs.oracle.com/en/java/
    // returns the completed value or the fallbackValue and **never** throws an exception
    myFuture.getOrFallback(10, TimeUnit.SECONDS, fallbackValue);
    ```
+
+
+### <a name="FuturesContext"></a>The `FuturesContext` class
+
+The `FuturesContext` allows tracking multiple futures/stages, e.g. to later cancel all at the same time.
+
+```java
+final var ctx = new FuturesContext<>();
+
+var future1 = new CompletableFuture<>();
+var future2 = new CompletableFuture<>();
+var future3 = new CompletableFuture<>();
+
+ctx.register(future1);
+ctx.register(future2);
+var results = ctx.getAllNow(); // get the results from future1 and future2 if available
+ctx.cancellAll(true); // cancel all currently and later registered incomplete futures
+ctx.register(future3); // will directly cancel future3
+```
+
+Using with `ExtendedFuture#registerWith(FuturesContext)` method:
+```java
+final var ctx = new FuturesContext<>();
+
+var myFuture = ExtendedFuture.supplyAsync(...)
+       .thenApply(...)    // step 1
+       .registerWith(ctx) // registers previous stage with the FuturesContext
+       .thenRun(...)      // step 2
+       .thenCompose(x -> {
+          var innerFuture = ExtendedFuture
+             .runAsync(...)
+             .registerWith(ctx); // registers previous stage with the FuturesContext
+          return innerFuture;
+       })
+       .thenAccept(...); // step 3
+
+if (...) {
+   // cancel step 1 and the inner future if not yet complete
+   ctx.cancel(true);
+} else {
+   var results = ctx.getAllNow(); // gets the results from step 1 and the innerFuture if available
+}
+```
+
 
 ### <a name="Futures"></a>The `Futures` utility class
 

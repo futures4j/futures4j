@@ -63,6 +63,8 @@ import io.github.futures4j.util.ThrowingSupplier;
  */
 public class ExtendedFuture<T> extends CompletableFuture<T> {
 
+   private static final Logger LOG = System.getLogger(Futures.class.getName());
+
    public static class Builder<V> {
 
       private boolean cancellableByDependents = false;
@@ -1037,6 +1039,26 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          f.cancellablePrecedingStages.add(this);
       }
       return f;
+   }
+
+   /**
+    * Registers this future with the given {@link Consumer}.
+    *
+    * @return this instance
+    */
+   public ExtendedFuture<T> registerWith(final Consumer<? super Future<?>> target) {
+      target.accept(this);
+      return this;
+   }
+
+   /**
+    * Registers this future with the given {@link FuturesContext}.
+    *
+    * @return this instance
+    */
+   public ExtendedFuture<T> registerWith(final FuturesContext<? super T> ctx) {
+      ctx.register(this);
+      return this;
    }
 
    @Override
