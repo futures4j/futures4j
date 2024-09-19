@@ -23,7 +23,7 @@ import net.sf.jstuff.core.ref.MutableRef;
 class CompletableFutureTest extends AbstractFutureTest {
 
    @Test
-   void testCompletedFuture() {
+   void testCompletedFuture() throws InterruptedException {
       testCompletedFuture(CompletableFuture::new, CompletableFuture::completedFuture);
    }
 

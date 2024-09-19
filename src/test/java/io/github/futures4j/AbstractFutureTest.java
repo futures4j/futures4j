@@ -21,6 +21,7 @@ import org.junit.jupiter.api.MethodOrderer.MethodName;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.junit.jupiter.api.Timeout;
 
+import io.github.futures4j.ExtendedFuture.WrappingFuture;
 import net.sf.jstuff.core.concurrent.Threads;
 import net.sf.jstuff.core.ref.MutableObservableRef;
 import net.sf.jstuff.core.ref.MutableRef;
@@ -108,10 +109,13 @@ abstract class AbstractFutureTest {
 
       assertThat(completedFuture.cancel(true)).isFalse();
 
+      if (completedFuture instanceof final WrappingFuture<U> ef) { // CHECKSTYLE:IGNORE .*
+         testCompletedFuture(ef.wrapped, value);
+      }
    }
 
    void testCompletedFuture(final Supplier<CompletableFuture<@Nullable String>> newFutureFactory,
-         final Function<@Nullable String, CompletableFuture<@Nullable String>> completedFutureFactory) {
+         final Function<@Nullable String, CompletableFuture<@Nullable String>> completedFutureFactory) throws InterruptedException {
       testCompletedFuture(completedFutureFactory.apply("value"), "value");
       testCompletedFuture(completedFutureFactory.apply(null), null);
 
@@ -122,6 +126,20 @@ abstract class AbstractFutureTest {
       completableFuture = newFutureFactory.get();
       completableFuture.complete(null);
       testCompletedFuture(completableFuture, null);
+
+      completableFuture = newFutureFactory.get();
+      completableFuture.completeOnTimeout("value", 100, TimeUnit.MILLISECONDS);
+      awaitFutureState(completableFuture, CompletionState.COMPLETED);
+      testCompletedFuture(completableFuture, "value");
+
+      completableFuture = newFutureFactory.get();
+      completableFuture.completeAsync(() -> "value");
+      awaitFutureState(completableFuture, CompletionState.COMPLETED);
+      testCompletedFuture(completableFuture, "value");
+
+      completableFuture = newFutureFactory.get();
+      completableFuture.completeExceptionally(new RuntimeException());
+      awaitFutureState(completableFuture, CompletionState.FAILED);
    }
 
    void testCopy(final Supplier<CompletableFuture<@Nullable String>> newFutureFactory) {

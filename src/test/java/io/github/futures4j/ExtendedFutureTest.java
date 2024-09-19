@@ -64,10 +64,13 @@ class ExtendedFutureTest extends AbstractFutureTest {
    }
 
    @Test
-   void testCompletedFuture() {
+   void testCompletedFuture() throws InterruptedException {
       testCompletedFuture(ExtendedFuture::create, ExtendedFuture::completedFuture);
       testCompletedFuture(ExtendedFuture::create, value -> ExtendedFuture.from(CompletableFuture.completedFuture(value))
          .asCancellableByDependents(true));
+
+      testCompletedFuture(() -> ExtendedFuture.from(new CompletableFuture<String>()), value -> ExtendedFuture.from(CompletableFuture
+         .completedFuture(value)));
 
       assertThat(ExtendedFuture.from(CompletableFuture.completedFuture(null)).isInterruptible()).isFalse();
       assertThat(ExtendedFuture.from(CompletableFuture.completedFuture(null)).isInterruptibleStages()).isTrue();
