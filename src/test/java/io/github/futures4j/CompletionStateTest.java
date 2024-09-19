@@ -30,7 +30,7 @@ class CompletionStateTest {
       final var exceptionallyCompletedFuture = new CompletableFuture<>();
       exceptionallyCompletedFuture.completeExceptionally(new RuntimeException("Error"));
 
-      assertThat(CompletionState.of(exceptionallyCompletedFuture)).isEqualTo(CompletionState.COMPLETED_EXCEPTIONALLY);
+      assertThat(CompletionState.of(exceptionallyCompletedFuture)).isEqualTo(CompletionState.FAILED);
    }
 
    @Test

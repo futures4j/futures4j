@@ -36,7 +36,7 @@ futures4j 1.x requires Java 17 or newer.
 
 Latest **Release** binaries are available on Maven central, see https://central.sonatype.com/artifact/io.github.futures4j/futures4j
 
-You can add the futures4j as a dependency to your `pom.xml` like so:
+You can add futures4j as a dependency to your `pom.xml` like so:
 
 ```xml
 <project>
@@ -254,7 +254,7 @@ if (...) {
 ```
 
 Other things one can do:
-```
+```java
 final var mgr = new FutureManager<>();
 
 // ... register some futures...
@@ -264,7 +264,7 @@ var combinedFuture = mgr.combineAll().toList();
 combinedFuture.thenAccept(results -> /* ... */);
 
 var results = mgr.joinAll(); // wait for all currently registered futures to complete
-results.assertCompletedNormally(); // throws an exception in case some futures were cancelled or completed exceptionally
+results.assertCompletedNormally(); // throws an exception in case some futures were cancelled or failed
 ```
 
 
@@ -359,10 +359,10 @@ enum allows switching on a future's completion state:
 Future<String> future = ...;
 
 switch (CompletionState.of(future)) {
-  case CANCELLED -> /* ... */;
-  case COMPLETED -> /* ... */;
-  case COMPLETED_EXCEPTIONALLY -> /* ... */;
   case INCOMPLETE -> /* ... */;
+  case COMPLETED  -> /* ... */;
+  case CANCELLED  -> /* ... */;
+  case FAILED     -> /* ... */;
 }
 ```
 

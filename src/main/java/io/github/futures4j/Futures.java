@@ -75,17 +75,12 @@ public abstract class Futures {
 
    /**
     * Represents the results of multiple {@link Future} computations, capturing both successful results and exceptions from futures that
-    * completed exceptionally, were cancelled or timed-out.
-    * <p>
-    * The {@code Results} record holds two maps:
-    * <ul>
-    * <li>{@code results}: A map of {@link Future} instances that completed normally, mapped to their results.</li>
-    * <li>{@code exceptions}: A map of {@link Future} instances that were cancelled, interrupted, timed out, or completed exceptionally,
-    * mapped to the corresponding exception encountered during their execution.</li>
-    * </ul>
-    * </p>
+    * failed, were cancelled or timed-out.
     *
     * @param <T> the type of the result of the futures
+    * @param results Holds {@link Future} instances that completed normally, mapped to their results.
+    * @param exceptions Holds {@link Future} instances that failed, were cancelled or timed-out, mapped to the corresponding
+    *           exception encountered during their execution.
     */
    public record Results<T>(Map<Future<? extends T>, T> results, Map<Future<? extends T>, Exception> exceptions) {
       private static final Results<?> EMPTY = new Results<>(Collections.emptyMap(), Collections.emptyMap());
@@ -101,7 +96,7 @@ public abstract class Futures {
        * <p>
        * This method verifies that all {@link Future} tasks associated with this {@code Results} instance have completed
        * without exceptions, interruptions, cancellations, or timeouts. If any of the futures encountered an issue
-       * (e.g., completed exceptionally, was interrupted, canceled, or did not finish), the method throws a
+       * (e.g., failed, was interrupted, canceled, or did not finish), the method throws a
        * {@link CompletionException} containing the first encountered exception as its cause.
        * </p>
        *
@@ -456,12 +451,12 @@ public abstract class Futures {
    /**
     * Waits for all futures to complete and returns a list of results from all normally completed futures.
     * <p>
-    * If at least one future was cancelled or completed exceptionally, this method will throw the corresponding exception.
+    * If at least one future was cancelled or failed, this method will throw the corresponding exception.
     *
     * @return a list of results from all completed futures
     *
     * @throws CancellationException if any future was cancelled
-    * @throws ExecutionException if any future completed exceptionally
+    * @throws ExecutionException if any future failed
     * @throws InterruptedException if the current thread was interrupted while waiting
     */
    @SafeVarargs
@@ -482,13 +477,13 @@ public abstract class Futures {
    /**
     * Waits up to the specified timeout for all futures to complete and returns a list of results from all normally completed futures.
     * <p>
-    * If at least one future was cancelled or completed exceptionally or did not complete within the specified time, this method will throw
+    * If at least one future was cancelled or failed or did not complete within the specified time, this method will throw
     * the corresponding exception.
     *
     * @return a list of results from all completed futures
     *
     * @throws CancellationException if any future was cancelled
-    * @throws ExecutionException if any future completed exceptionally
+    * @throws ExecutionException if any future failed
     * @throws InterruptedException if the current thread was interrupted while waiting
     * @throws TimeoutException if the wait timed out before all futures completed
     */
@@ -512,12 +507,12 @@ public abstract class Futures {
    /**
     * Waits for all futures to complete and returns a list of results from all normally completed futures.
     * <p>
-    * If at least one future was cancelled or completed exceptionally, this method will throw the corresponding exception.
+    * If at least one future was cancelled or failed, this method will throw the corresponding exception.
     *
     * @return a list of results from all completed futures
     *
     * @throws CancellationException if any future was cancelled
-    * @throws ExecutionException if any future completed exceptionally
+    * @throws ExecutionException if any future failed
     * @throws InterruptedException if the current thread was interrupted while waiting
     */
    public static <T> List<T> getAll(final @Nullable Iterable<? extends @Nullable Future<? extends T>> futures) throws ExecutionException,
@@ -537,13 +532,13 @@ public abstract class Futures {
    /**
     * Waits up to the specified timeout for all futures to complete and returns a list of results from all normally completed futures.
     * <p>
-    * If at least one future was cancelled or completed exceptionally or did not complete within the specified time, this method will throw
+    * If at least one future was cancelled or failed or did not complete within the specified time, this method will throw
     * the corresponding exception.
     *
     * @return a list of results from all completed futures
     *
     * @throws CancellationException if any future was cancelled
-    * @throws ExecutionException if any future completed exceptionally
+    * @throws ExecutionException if any future failed
     * @throws InterruptedException if the current thread was interrupted while waiting
     * @throws TimeoutException if the wait timed out before all futures completed
     */
@@ -573,7 +568,7 @@ public abstract class Futures {
     * </p>
     *
     * @return a {@link Results} object containing a map of completed futures with their results and a map of futures that
-    *         were cancelled or completed exceptionally with their corresponding exceptions.
+    *         were cancelled or failed with their corresponding exceptions.
     */
    @SafeVarargs
    @SuppressWarnings("null")
@@ -592,7 +587,7 @@ public abstract class Futures {
     * </p>
     *
     * @return a {@link Results} object containing a map of completed futures with their results and a map of futures that
-    *         were cancelled or completed exceptionally with their corresponding exceptions.
+    *         were cancelled or failed with their corresponding exceptions.
     */
    public static <T> Results<T> getAllNow(final @Nullable Iterable<? extends @Nullable Future<? extends T>> futures) {
       if (futures == null)
@@ -616,7 +611,7 @@ public abstract class Futures {
     * </p>
     *
     * @return a {@link Results} object containing a map of completed futures with their results and a map of futures that
-    *         were cancelled or completed exceptionally with their corresponding exceptions.
+    *         were cancelled or failed with their corresponding exceptions.
     */
    public static <T> Results<T> getAllNow(final @Nullable Stream<? extends @Nullable Future<? extends T>> futures) {
       if (futures == null)
@@ -646,7 +641,7 @@ public abstract class Futures {
 
    /**
     * Returns the result of the given {@link Future} if it is already completed wrapped in an {@link Optional},
-    * or an empty {@link Optional} if the future is incomplete, cancelled or completed exceptionally.
+    * or an empty {@link Optional} if the future is incomplete, cancelled or failed.
     *
     * @return an {@link Optional} containing the result of the future if completed normally, or an empty {@link Optional} otherwise
     */
@@ -658,7 +653,7 @@ public abstract class Futures {
 
    /**
     * Returns the result of the given {@link Future} if it is already completed, or the value computed by
-    * {@code fallbackComputer} if the future is incomplete or completed exceptionally.
+    * {@code fallbackComputer} if the future is incomplete or failed.
     *
     * @return the result of the future if completed, otherwise the value computed by {@code fallbackComputer}
     */
@@ -671,7 +666,7 @@ public abstract class Futures {
 
    /**
     * Returns the result of the given {@link Future} if it is already completed, or the specified
-    * {@code fallback} if the future is incomplete or completed exceptionally.
+    * {@code fallback} if the future is incomplete or failed.
     *
     * @return the result of the future if completed, otherwise {@code fallback}
     */
@@ -750,10 +745,10 @@ public abstract class Futures {
 
    /**
     * Waits for all futures to complete and returns a {@link Results} object containing results from normally completed futures
-    * and exceptions from futures that were cancelled or completed exceptionally.
+    * and exceptions from futures that were cancelled or failed.
     *
     * @return a {@link Results} object containing a map of completed futures with their results and a map of futures that
-    *         were cancelled or completed exceptionally with their corresponding exceptions.
+    *         were cancelled or failed with their corresponding exceptions.
     */
    @SafeVarargs
    @SuppressWarnings("null")
@@ -766,12 +761,12 @@ public abstract class Futures {
 
    /**
     * Waits up to the specified timeout for all futures to complete and returns a {@link Results} object containing results
-    * from normally completed futures and exceptions from futures that were cancelled, interrupted, timed-out, or completed exceptionally.
+    * from normally completed futures and exceptions from futures that were cancelled, interrupted, timed-out, or failed.
     *
     * @param timeout the maximum time to wait
     * @param unit the time unit of the {@code timeout} argument
     * @return a {@link Results} object containing a map of completed futures with their results and a map of futures that
-    *         were cancelled, interrupted, timed-out, or completed exceptionally with their corresponding exceptions.
+    *         were cancelled, interrupted, timed-out, or failed with their corresponding exceptions.
     */
    public static <T> Results<T> joinAll(final @Nullable Future<? extends T> @Nullable [] futures, final long timeout, final TimeUnit unit) {
       if (futures == null || futures.length == 0)
@@ -782,10 +777,10 @@ public abstract class Futures {
 
    /**
     * Waits for all futures to complete and returns a {@link Results} object containing results from normally completed futures
-    * and exceptions from futures that were cancelled or completed exceptionally.
+    * and exceptions from futures that were cancelled or failed.
     *
     * @return a {@link Results} object containing a map of completed futures with their results and a map of futures that
-    *         were cancelled or completed exceptionally with their corresponding exceptions.
+    *         were cancelled or failed with their corresponding exceptions.
     */
    public static <T> Results<T> joinAll(final @Nullable Iterable<? extends @Nullable Future<? extends T>> futures) {
       if (futures == null)
@@ -802,12 +797,12 @@ public abstract class Futures {
 
    /**
     * Waits up to the specified timeout for all futures to complete and returns a {@link Results} object containing results
-    * from normally completed futures and exceptions from futures that were cancelled, interrupted, timed-out, or completed exceptionally.
+    * from normally completed futures and exceptions from futures that were cancelled, interrupted, timed-out, or failed.
     *
     * @param timeout the maximum time to wait
     * @param unit the time unit of the {@code timeout} argument
     * @return a {@link Results} object containing a map of completed futures with their results and a map of futures that
-    *         were cancelled, interrupted, timed-out, or completed exceptionally with their corresponding exceptions.
+    *         were cancelled, interrupted, timed-out, or failed with their corresponding exceptions.
     */
    public static <T> Results<T> joinAll(final @Nullable Iterable<? extends @Nullable Future<? extends T>> futures, final long timeout,
          final TimeUnit unit) {
@@ -825,10 +820,10 @@ public abstract class Futures {
 
    /**
     * Waits for all futures to complete and returns a {@link Results} object containing results from normally completed futures
-    * and exceptions from futures that were cancelled or completed exceptionally.
+    * and exceptions from futures that were cancelled or failed.
     *
     * @return a {@link Results} object containing a map of completed futures with their results and a map of futures that
-    *         were cancelled or completed exceptionally with their corresponding exceptions.
+    *         were cancelled or failed with their corresponding exceptions.
     */
    public static <T> Results<T> joinAll(final @Nullable Stream<? extends @Nullable Future<? extends T>> futures) {
       if (futures == null)
@@ -858,12 +853,12 @@ public abstract class Futures {
 
    /**
     * Waits up to the specified timeout for all futures to complete and returns a {@link Results} object containing results
-    * from normally completed futures and exceptions from futures that were cancelled, interrupted, timed-out, or completed exceptionally.
+    * from normally completed futures and exceptions from futures that were cancelled, interrupted, timed-out, or failed.
     *
     * @param timeout the maximum time to wait
     * @param unit the time unit of the {@code timeout} argument
     * @return a {@link Results} object containing a map of completed futures with their results and a map of futures that
-    *         were cancelled, interrupted, timed-out, or completed exceptionally with their corresponding exceptions.
+    *         were cancelled, interrupted, timed-out, or failed with their corresponding exceptions.
     */
    public static <T> Results<T> joinAll(final @Nullable Stream<? extends @Nullable Future<? extends T>> futures, final long timeout,
          final TimeUnit unit) {

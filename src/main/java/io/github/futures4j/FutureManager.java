@@ -81,12 +81,12 @@ public class FutureManager<T> {
    /**
     * Waits for all currently registered futures to complete and returns a list of results from all normally completed futures.
     * <p>
-    * If at least one future was cancelled or completed exceptionally, this method will throw the corresponding exception.
+    * If at least one future was cancelled or failed, this method will throw the corresponding exception.
     *
     * @return a list of results from all completed futures; an empty list if no futures are completed normally
     *
     * @throws CancellationException if any future was cancelled
-    * @throws ExecutionException if any future completed exceptionally
+    * @throws ExecutionException if any future failed
     * @throws InterruptedException if the current thread was interrupted while waiting
     */
    public List<T> getAll() throws ExecutionException, InterruptedException {
@@ -97,13 +97,13 @@ public class FutureManager<T> {
     * Waits up to the specified timeout for all currently registered futures to complete and returns a list of results from all normally
     * completed futures.
     * <p>
-    * If at least one future was cancelled or completed exceptionally or did not complete within the specified time, this method will throw
+    * If at least one future was cancelled or failed or did not complete within the specified time, this method will throw
     * the corresponding exception.
     *
     * @return a list of results from all completed futures; an empty list if no futures are completed
     *
     * @throws CancellationException if any future was cancelled
-    * @throws ExecutionException if any future completed exceptionally
+    * @throws ExecutionException if any future failed
     * @throws InterruptedException if the current thread was interrupted while waiting
     * @throws TimeoutException if the wait timed out before all futures completed
     */
@@ -120,7 +120,7 @@ public class FutureManager<T> {
     * </p>
     *
     * @return a {@link Results} object containing a map of completed futures with their results and a map of futures that
-    *         were cancelled or completed exceptionally with their corresponding exceptions.
+    *         were cancelled or failed with their corresponding exceptions.
     */
    public Futures.Results<T> getAllNow() {
       return Futures.getAllNow(futures);

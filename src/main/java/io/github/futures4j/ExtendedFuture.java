@@ -11,7 +11,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -43,7 +42,7 @@ import io.github.futures4j.util.ThrowingSupplier;
  * <li>allows creating a read-only view of a future using {@link #asReadOnly(ReadOnlyMode)}
  * <li>allows defining a default executor for this future and all subsequent stages e.g. via {@link #withDefaultExecutor(Executor)} or
  * {@link Builder#withDefaultExecutor(Executor)}
- * <li>offers additional convenience method such as {@link #isCompleted()}, {@link #getCompletionState()},
+ * <li>offers additional convenience method such as {@link #isCompleted()}, {@link #isFailed()}, {@link #getCompletionState()},
  * {@link #getNowOptional()}, {@link #getOptional(long, TimeUnit)},
  * {@link #getNowOrFallback(Object)}, {@link #getOrFallback(long, TimeUnit, Object)}
  * </ol>
@@ -602,12 +601,10 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    /**
-    * Cancels this {@link ExtendedFuture} by completing it with a {@link java.util.concurrent.CancellationException}
-    * if it has not already been completed. Any dependent {@link CompletableFuture}s that have not
-    * yet completed will also complete exceptionally, with a {@link CompletionException} caused by
-    * the {@code CancellationException} from this task.
-    *
-    * If preceding stage has {@link #isCancellableByDependents()} set, this will also propagate the cancellation to the preceding stage.
+    * {@inheritDoc}
+    * <p>
+    * If preceding stage has {@link #isCancellableByDependents()} set, the cancellation will also propagate to the preceding stage.
+    * </p>
     *
     * @param mayInterruptIfRunning {@code true} if the thread executing this task should be
     *           interrupted (if the thread is known to the implementation); otherwise,
@@ -759,7 +756,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    /**
     * Returns the result of this future if it is already completed wrapped in an {@link Optional},
-    * or an empty {@link Optional} if the future is incomplete, cancelled or completed exceptionally.
+    * or an empty {@link Optional} if the future is incomplete, cancelled or failed.
     *
     * @return an {@link Optional} containing the result of the future if completed normally, or an empty {@link Optional} otherwise
     */
@@ -769,7 +766,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    /**
     * Returns the result of this future if it is already completed, or the value provided by
-    * {@code fallbackComputer} if the future is incomplete, cancelled or completed exceptionally.
+    * {@code fallbackComputer} if the future is incomplete, cancelled or failed.
     *
     * @return the result of the future if completed normally, otherwise the value computed by {@code fallbackComputer}
     */
@@ -779,7 +776,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    /**
     * Returns the result of this future if it is already completed, or the specified
-    * {@code fallback} if the future is incomplete, cancelled or completed exceptionally.
+    * {@code fallback} if the future is incomplete, cancelled or failed.
     *
     * @return the result of the future if completed normally, otherwise {@code fallback}
     */
@@ -994,10 +991,21 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    /**
-    * @return true if this future is completed normally
+    * @return true if this future completed normally
     */
    public boolean isCompleted() {
       return isDone() && !isCancelled() && !isCompletedExceptionally();
+   }
+
+   /**
+    * Returns {@code true} if this {@link ExtendedFuture} was completed
+    * exceptionally, excluding cancellation.
+    *
+    * @return {@code true} if the future completed exceptionally
+    *         (i.e., failed due to an exception), but not if it was cancelled.
+    */
+   public boolean isFailed() {
+      return isCompletedExceptionally() && !isCancelled();
    }
 
    /**
@@ -1031,7 +1039,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       } else {
          newFuture = new ExtendedFuture<>(defaultExecutor, cancellableByDependents, interruptibleStages, null);
       }
-      if (cancellableByDependents && !isCancelled()) {
+      if (cancellableByDependents && !isDone()) {
          newFuture.cancellablePrecedingStages.add(this);
       }
       return newFuture;

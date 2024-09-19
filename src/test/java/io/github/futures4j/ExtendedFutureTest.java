@@ -86,7 +86,7 @@ class ExtendedFutureTest extends AbstractFutureTest {
 
       final var exceptionallyCompletedFuture = ExtendedFuture.create();
       exceptionallyCompletedFuture.completeExceptionally(new RuntimeException("Error"));
-      assertThat(exceptionallyCompletedFuture.getCompletionState()).isEqualTo(CompletionState.COMPLETED_EXCEPTIONALLY);
+      assertThat(exceptionallyCompletedFuture.getCompletionState()).isEqualTo(CompletionState.FAILED);
 
       final var completedFuture = ExtendedFuture.completedFuture("Success");
       assertThat(completedFuture.getCompletionState()).isEqualTo(CompletionState.COMPLETED);
