@@ -5,7 +5,7 @@
  */
 package io.github.futures4j;
 
-import static org.assertj.core.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -18,30 +18,30 @@ import org.junit.jupiter.api.Timeout;
  * @author <a href="https://sebthom.de/">Sebastian Thomschke</a>
  */
 @Timeout(5)
-class FuturesContextTest {
+class FutureManagerTest {
 
-   private FuturesContext<String> ctx = new FuturesContext<>();
+   private FutureManager<String> mgr = new FutureManager<>();
 
    @Test
    void testDeregisterFuture() {
       final CompletableFuture<String> future1 = new CompletableFuture<>();
 
-      ctx.register(future1);
-      ctx.deregister(future1);
+      mgr.register(future1);
+      mgr.deregister(future1);
 
-      assertThat(ctx.hasAnyIncomplete()).isFalse();
+      assertThat(mgr.hasAnyIncomplete()).isFalse();
    }
 
    @Test
-   void testGetAll() {
+   void testJoinAll() {
       final ExecutorService executor = Executors.newCachedThreadPool();
 
       try {
          final CompletableFuture<String> future1 = new CompletableFuture<>();
          final CompletableFuture<String> future2 = new CompletableFuture<>();
 
-         ctx.register(future1);
-         ctx.register(future2);
+         mgr.register(future1);
+         mgr.register(future2);
 
          executor.submit(() -> {
             try {
@@ -61,7 +61,7 @@ class FuturesContextTest {
             }
          });
 
-         assertThat(ctx.getAll()).contains("result1", "result2");
+         assertThat(mgr.joinAll().results()).containsValues("result1", "result2");
       } finally {
          executor.shutdown();
       }
@@ -72,30 +72,21 @@ class FuturesContextTest {
       final CompletableFuture<String> future1 = CompletableFuture.completedFuture("result1");
       final CompletableFuture<String> future2 = CompletableFuture.completedFuture("result2");
 
-      ctx.register(future1);
-      ctx.register(future2);
+      mgr.register(future1);
+      mgr.register(future2);
 
-      assertThat(ctx.getAllNow()).contains("result1", "result2");
-   }
-
-   @Test
-   void testGetAllNowOrThrow() {
-      final CompletableFuture<String> future1 = new CompletableFuture<>();
-      future1.completeExceptionally(new RuntimeException("Test exception"));
-
-      ctx.register(future1);
-      assertThatThrownBy(() -> ctx.getAllNowOrThrow()).hasMessageContaining("Test exception");
+      assertThat(mgr.getAllNow().results()).containsValues("result1", "result2");
    }
 
    @Test
    void testHasAnyIncomplete() {
       final CompletableFuture<String> future1 = new CompletableFuture<>();
 
-      ctx.register(future1);
-      assertThat(ctx.hasAnyIncomplete()).isTrue();
+      mgr.register(future1);
+      assertThat(mgr.hasAnyIncomplete()).isTrue();
 
       future1.complete("result");
-      assertThat(ctx.hasAnyIncomplete()).isFalse();
+      assertThat(mgr.hasAnyIncomplete()).isFalse();
    }
 
    @Test
@@ -103,13 +94,13 @@ class FuturesContextTest {
       final CompletableFuture<String> future1 = new CompletableFuture<>();
       final CompletableFuture<String> future2 = new CompletableFuture<>();
 
-      ctx.register(future1);
-      ctx.register(future2);
+      mgr.register(future1);
+      mgr.register(future2);
 
-      ctx.cancelAll(true);
+      mgr.cancelAll(true);
 
       assertThat(future1.isCancelled()).isTrue();
       assertThat(future2.isCancelled()).isTrue();
-      assertThat(ctx.isCancelled()).isTrue();
+      assertThat(mgr.isCancelled()).isTrue();
    }
 }

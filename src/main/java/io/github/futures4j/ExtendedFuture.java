@@ -1040,20 +1040,20 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    /**
     * Registers this future with the given {@link Consumer}.
     *
-    * @return this instance
+    * @return this {@code ExtendedFuture} instance for method chaining.
     */
-   public ExtendedFuture<T> registerWith(final Consumer<? super Future<?>> target) {
+   public ExtendedFuture<T> registerWith(final Consumer<Future<T>> target) {
       target.accept(this);
       return this;
    }
 
    /**
-    * Registers this future with the given {@link FuturesContext}.
+    * Registers this future with the given {@link FutureManager}.
     *
-    * @return this instance
+    * @return this {@code ExtendedFuture} instance for method chaining.
     */
-   public ExtendedFuture<T> registerWith(final FuturesContext<? super T> ctx) {
-      ctx.register(this);
+   public ExtendedFuture<T> registerWith(final FutureManager<T> manager) {
+      manager.register(this);
       return this;
    }
 

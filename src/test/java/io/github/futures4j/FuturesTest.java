@@ -5,7 +5,7 @@
  */
 package io.github.futures4j;
 
-import static org.assertj.core.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -13,7 +13,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -269,7 +268,8 @@ class FuturesTest extends AbstractFutureTest {
          final var futures = new ExtendedFuture<?>[0];
 
          final var result = Futures.getAllNow(futures);
-         assertThat(result).isEmpty();
+         assertThat(result.results()).isEmpty();
+         assertThat(result.exceptions()).isEmpty();
       }
       // Test case with some futures completed
       {
@@ -277,7 +277,8 @@ class FuturesTest extends AbstractFutureTest {
          final var futures = new ExtendedFuture<?>[] {future1, future2};
 
          final var result = Futures.getAllNow(futures);
-         assertThat(result).containsExactly("First", "Second");
+         assertThat(result.results().values()).containsOnly("First", "Second");
+         assertThat(result.exceptions()).isEmpty();
       }
       // Test with cancelled future
       {
@@ -286,7 +287,8 @@ class FuturesTest extends AbstractFutureTest {
          final var futures = new ExtendedFuture<?>[] {future1, future2};
 
          final var result = Futures.getAllNow(futures);
-         assertThat(result).containsExactly("First");
+         assertThat(result.results().values()).containsOnly("First");
+         assertThat(result.exceptions()).isNotEmpty();
       }
       // Test case with a future that completes exceptionally
       {
@@ -295,7 +297,8 @@ class FuturesTest extends AbstractFutureTest {
          final var futures = new ExtendedFuture<?>[] {future1, future2};
 
          final var result = Futures.getAllNow(futures);
-         assertThat(result).containsExactly("First");
+         assertThat(result.results().values()).containsOnly("First");
+         assertThat(result.exceptions()).isNotEmpty();
       }
    }
 
@@ -308,7 +311,8 @@ class FuturesTest extends AbstractFutureTest {
          final Collection<Future<String>> futures = Collections.emptyList();
 
          final var result = Futures.getAllNow(futures);
-         assertThat(result).isEmpty();
+         assertThat(result.results().values()).isEmpty();
+         assertThat(result.exceptions()).isEmpty();
       }
       // Test case with some futures completed
       {
@@ -316,7 +320,8 @@ class FuturesTest extends AbstractFutureTest {
          final var futures = List.of(future1, future2);
 
          final var result = Futures.getAllNow(futures);
-         assertThat(result).containsExactly("First", "Second");
+         assertThat(result.results().values()).containsOnly("First", "Second");
+         assertThat(result.exceptions()).isEmpty();
       }
       // Test with cancelled future
       {
@@ -325,7 +330,8 @@ class FuturesTest extends AbstractFutureTest {
          final var futures = List.of(future1, future2);
 
          final var result = Futures.getAllNow(futures);
-         assertThat(result).containsExactly("First");
+         assertThat(result.results().values()).containsOnly("First");
+         assertThat(result.exceptions()).isNotEmpty();
       }
       // Test case with a future that completes exceptionally
       {
@@ -334,126 +340,13 @@ class FuturesTest extends AbstractFutureTest {
          final var futures = List.of(future1, future2);
 
          final var result = Futures.getAllNow(futures);
-         assertThat(result).containsExactly("First");
+         assertThat(result.results().values()).containsOnly("First");
+         assertThat(result.exceptions()).isNotEmpty();
       }
    }
 
    @Test
-   void testGetAllNowOrThrow_Array() throws Exception {
-      final var future1 = ExtendedFuture.completedFuture("First");
-
-      // Test with all futures completed successfully
-      {
-         final var future2 = ExtendedFuture.completedFuture("Second");
-         final var futures = new ExtendedFuture<?>[] {future1, future2};
-
-         final var result = Futures.getAllNowOrThrow(futures);
-         assertThat(result).containsExactly("First", "Second");
-      }
-      // Test with some futures completed
-      {
-         final var future2 = ExtendedFuture.create();
-         final var futures = new ExtendedFuture<?>[] {future1, future2};
-
-         final var result = Futures.getAllNowOrThrow(futures);
-         assertThat(result).containsExactly("First");
-      }
-      // Test with cancelled future
-      {
-         final var future2 = ExtendedFuture.create();
-         future2.cancel(true);
-         final var futures = new ExtendedFuture<?>[] {future1, future2};
-
-         final var thrown = catchThrowable(() -> Futures.getAllNowOrThrow(futures));
-         assertThat(thrown).isInstanceOf(CancellationException.class);
-      }
-      // Test with exceptionally completed future
-      {
-         final var future2 = ExtendedFuture.create();
-         future2.completeExceptionally(new RuntimeException());
-         final var futures = new ExtendedFuture<?>[] {future1, future2};
-
-         final var thrown = catchThrowable(() -> Futures.getAllNowOrThrow(futures));
-         assertThat(thrown).isInstanceOf(ExecutionException.class);
-      }
-   }
-
-   @Test
-   void testGetAllNowOrThrow_Collection() throws Exception {
-      final var future1 = ExtendedFuture.completedFuture("First");
-
-      // Test with all futures completed successfully
-      {
-         final var future2 = ExtendedFuture.completedFuture("Second");
-         final var futures = List.of(future1, future2);
-
-         final var result = Futures.getAllNowOrThrow(futures);
-         assertThat(result).containsExactly("First", "Second");
-      }
-      // Test with some futures completed
-      {
-         final var future2 = ExtendedFuture.create();
-         final var futures = List.of(future1, future2);
-
-         final var result = Futures.getAllNowOrThrow(futures);
-         assertThat(result).containsExactly("First");
-      }
-      // Test with cancelled future
-      {
-         final var future2 = ExtendedFuture.create();
-         future2.cancel(true);
-         final var futures = List.of(future1, future2);
-
-         final var thrown = catchThrowable(() -> Futures.getAllNowOrThrow(futures));
-         assertThat(thrown).isInstanceOf(CancellationException.class);
-      }
-      // Test with exceptionally completed future
-      {
-         final var future2 = ExtendedFuture.create();
-         future2.completeExceptionally(new RuntimeException());
-         final var futures = List.of(future1, future2);
-
-         final var thrown = catchThrowable(() -> Futures.getAllNowOrThrow(futures));
-         assertThat(thrown).isInstanceOf(ExecutionException.class);
-      }
-   }
-
-   @Test
-   void testGetNow_Java5Future() {
-      // Test with successfully completed future
-      {
-         final var future = new FutureTask<>(() -> { /**/ }, "Success");
-         future.run();
-
-         final var result = Futures.getNowOrFallback(future, "Fallback");
-         assertThat(result).isEqualTo("Success");
-         final var result2 = Futures.getNowOrComputeFallback(future, (f, ex) -> "Fallback");
-         assertThat(result2).isEqualTo("Success");
-      }
-      // Test with incomplete future
-      {
-         final var future = new FutureTask<>(() -> { /**/ }, "Success");
-
-         final var result = Futures.getNowOrFallback(future, "Fallback");
-         assertThat(result).isEqualTo("Fallback");
-         final var result2 = Futures.getNowOrComputeFallback(future, (f, ex) -> "Fallback");
-         assertThat(result2).isEqualTo("Fallback");
-      }
-
-      // Test with cancelled future
-      {
-         final var future = new FutureTask<>(() -> { /**/ }, "Success");
-         future.cancel(true);
-
-         final var result = Futures.getNowOrFallback(future, "Fallback");
-         assertThat(result).isEqualTo("Fallback");
-         final var result2 = Futures.getNowOrComputeFallback(future, (f, ex) -> "Fallback");
-         assertThat(result2).isEqualTo("Fallback");
-      }
-   }
-
-   @Test
-   void testGetNow_CompletableFuture() {
+   void testGetAllNow_CompletableFuture() {
       // Test with successfully completed future
       {
          final var future = CompletableFuture.completedFuture("Success");
@@ -495,7 +388,7 @@ class FuturesTest extends AbstractFutureTest {
    }
 
    @Test
-   void testGetNow_ExtendedFuture() {
+   void testGetAllNow_ExtendedFuture() {
       // Test with successfully completed future
       {
          final var future = ExtendedFuture.completedFuture("Success");
@@ -536,6 +429,40 @@ class FuturesTest extends AbstractFutureTest {
       }
    }
 
+   @Test
+   void testGetAllNow_Java5Future() {
+      // Test with successfully completed future
+      {
+         final var future = new FutureTask<>(() -> { /**/ }, "Success");
+         future.run();
+
+         final var result = Futures.getNowOrFallback(future, "Fallback");
+         assertThat(result).isEqualTo("Success");
+         final var result2 = Futures.getNowOrComputeFallback(future, (f, ex) -> "Fallback");
+         assertThat(result2).isEqualTo("Success");
+      }
+      // Test with incomplete future
+      {
+         final var future = new FutureTask<>(() -> { /**/ }, "Success");
+
+         final var result = Futures.getNowOrFallback(future, "Fallback");
+         assertThat(result).isEqualTo("Fallback");
+         final var result2 = Futures.getNowOrComputeFallback(future, (f, ex) -> "Fallback");
+         assertThat(result2).isEqualTo("Fallback");
+      }
+
+      // Test with cancelled future
+      {
+         final var future = new FutureTask<>(() -> { /**/ }, "Success");
+         future.cancel(true);
+
+         final var result = Futures.getNowOrFallback(future, "Fallback");
+         assertThat(result).isEqualTo("Fallback");
+         final var result2 = Futures.getNowOrComputeFallback(future, (f, ex) -> "Fallback");
+         assertThat(result2).isEqualTo("Fallback");
+      }
+   }
+
    /**
     * This method is also used to test Eclipse compiler's null checks and type interference
     */
@@ -554,7 +481,6 @@ class FuturesTest extends AbstractFutureTest {
       assertThat(Futures.cancel(nullFuture, true)).isFalse();
       assertThat(Futures.cancelInterruptibly(nullFuture)).isFalse();
 
-      assertThat(Futures.cancelAll(nullFuture)).isZero();
       assertThat(Futures.cancelAll(nullArray)).isZero();
       assertThat(Futures.cancelAll(nullList)).isZero();
       assertThat(Futures.cancelAll(arrayWithNulls)).isZero();
@@ -587,9 +513,9 @@ class FuturesTest extends AbstractFutureTest {
       Futures.forwardCancellation(ExtendedFuture.completedFuture(null), arrayWithNulls);
       Futures.forwardCancellation(ExtendedFuture.completedFuture(null), listWithNulls);
 
-      assertThat(Futures.getAllNow(nullArray)).isEmpty();
-      assertThat(Futures.getAllNow(nullList)).isEmpty();
-      assertThat(Futures.getAllNow(arrayWithNulls)).isEmpty();
-      assertThat(Futures.getAllNow(listWithNulls)).isEmpty();
+      assertThat(Futures.getAllNow(nullArray).results()).isEmpty();
+      assertThat(Futures.getAllNow(nullList).results()).isEmpty();
+      assertThat(Futures.getAllNow(arrayWithNulls).results()).isEmpty();
+      assertThat(Futures.getAllNow(listWithNulls).results()).isEmpty();
    }
 }
