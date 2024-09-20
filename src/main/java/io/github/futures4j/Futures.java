@@ -39,7 +39,7 @@ import org.eclipse.jdt.annotation.Nullable;
 public abstract class Futures {
 
    /**
-    * A builder interface for combining multiple {@link CompletableFuture} instances into a single
+    * A builder interface for combining multiple {@link Future} instances into a single
     * {@link ExtendedFuture} that aggregates their results.
     *
     * <p>
@@ -60,27 +60,41 @@ public abstract class Futures {
     */
    public interface Combiner<T> {
       /**
-       * Enables forwarding of cancellation of the combined future to it's underlying futures.
+       * Enables forwarding of cancellation of the combined future to its underlying futures.
        *
        * @return this {@code Combiner} instance for method chaining
        */
       Combiner<T> forwardCancellation();
 
+      /**
+       * Combines the futures into a single future that returns a {@link List} of results.
+       *
+       * @return an {@link ExtendedFuture} containing a list of results
+       */
       ExtendedFuture<List<T>> toList();
 
+      /**
+       * Combines the futures into a single future that returns a {@link Set} of results.
+       *
+       * @return an {@link ExtendedFuture} containing a set of results
+       */
       ExtendedFuture<Set<T>> toSet();
 
+      /**
+       * Combines the futures into a single future that returns a {@link Stream} of results.
+       *
+       * @return an {@link ExtendedFuture} containing a stream of results
+       */
       ExtendedFuture<Stream<T>> toStream();
    }
 
    /**
     * Represents the results of multiple {@link Future} computations, capturing both successful results and exceptions from futures that
-    * failed, were cancelled or timed-out.
+    * failed, were cancelled, or timed out.
     *
     * @param <T> the type of the result of the futures
-    * @param results Holds {@link Future} instances that completed normally, mapped to their results.
-    * @param exceptions Holds {@link Future} instances that failed, were cancelled or timed-out, mapped to the corresponding
-    *           exception encountered during their execution.
+    * @param results a map of {@link Future} instances that completed normally, mapped to their results
+    * @param exceptions a map of {@link Future} instances that failed, were cancelled, or timed out, mapped to the corresponding exceptions
     */
    public record Results<T>(Map<Future<? extends T>, T> results, Map<Future<? extends T>, Exception> exceptions) {
       private static final Results<?> EMPTY = new Results<>(Collections.emptyMap(), Collections.emptyMap());
@@ -94,15 +108,12 @@ public abstract class Futures {
        * Ensures that all {@link Future} instances within this {@code Results} object have completed successfully.
        *
        * <p>
-       * This method verifies that all {@link Future} tasks associated with this {@code Results} instance have completed
-       * without exceptions, interruptions, cancellations, or timeouts. If any of the futures encountered an issue
-       * (e.g., failed, was interrupted, canceled, or did not finish), the method throws a
-       * {@link CompletionException} containing the first encountered exception as its cause.
+       * If any of the futures encountered an issue (e.g., failed, was interrupted, canceled, or did not finish),
+       * the method throws a {@link CompletionException} containing the first encountered exception as its cause.
        * </p>
        *
-       * @return this {@code Results} instance for method chaining.
-       * @throws CompletionException if at least one {@link Future} did not complete normally, was cancelled, interrupted, or is still
-       *            incomplete. The cause of the exception is the first encountered exception from the {@code exceptions} map.
+       * @return this {@code Results} instance for method chaining
+       * @throws CompletionException if at least one {@link Future} did not complete normally
        */
       public Results<T> assertCompletedNormally() {
          if (!exceptions.isEmpty())
@@ -114,16 +125,22 @@ public abstract class Futures {
    private static final Logger LOG = System.getLogger(Futures.class.getName());
 
    /**
-    * Cancels the future if incomplete without interrupting running tasks.
+    * Cancels the future if it is incomplete, without interrupting running tasks.
     *
-    * @return true if the future is now cancelled
+    * @param futureToCancel the future to cancel
+    * @return {@code true} if the future is now cancelled
     */
    public static boolean cancel(final @Nullable Future<?> futureToCancel) {
       return cancel(futureToCancel, false);
    }
 
    /**
-    * @return true if the future is now cancelled
+    * Cancels the future if it is incomplete.
+    *
+    * @param futureToCancel the future to cancel
+    * @param mayInterruptIfRunning {@code true} if the thread executing this task should be interrupted; otherwise, in-progress tasks are
+    *           allowed to complete
+    * @return {@code true} if the future is now cancelled
     */
    public static boolean cancel(final @Nullable Future<?> futureToCancel, final boolean mayInterruptIfRunning) {
       if (futureToCancel == null)
@@ -138,6 +155,7 @@ public abstract class Futures {
    /**
     * Cancels all incomplete futures without interrupting running tasks.
     *
+    * @param futuresToCancel the array of futures to cancel
     * @return the number of futures that are now cancelled
     */
    public static int cancelAll(final @NonNullByDefault({}) Future<?> @Nullable... futuresToCancel) {
@@ -145,6 +163,11 @@ public abstract class Futures {
    }
 
    /**
+    * Cancels all incomplete futures.
+    *
+    * @param futuresToCancel the array of futures to cancel
+    * @param mayInterruptIfRunning {@code true} if the thread executing this task should be interrupted; otherwise, in-progress tasks are
+    *           allowed to complete
     * @return the number of futures that are now cancelled
     */
    public static int cancelAll(final @NonNullByDefault({}) Future<?> @Nullable [] futuresToCancel, final boolean mayInterruptIfRunning) {
@@ -162,6 +185,7 @@ public abstract class Futures {
    /**
     * Cancels all incomplete futures without interrupting running tasks.
     *
+    * @param futuresToCancel the iterable of futures to cancel
     * @return the number of futures that are now cancelled
     */
    public static int cancelAll(final @Nullable Iterable<? extends @Nullable Future<?>> futuresToCancel) {
@@ -169,6 +193,11 @@ public abstract class Futures {
    }
 
    /**
+    * Cancels all incomplete futures.
+    *
+    * @param futuresToCancel the iterable of futures to cancel
+    * @param mayInterruptIfRunning {@code true} if the thread executing this task should be interrupted; otherwise, in-progress tasks are
+    *           allowed to complete
     * @return the number of futures that are now cancelled
     */
    public static int cancelAll(final @Nullable Iterable<? extends @Nullable Future<?>> futuresToCancel,
@@ -185,13 +214,19 @@ public abstract class Futures {
    }
 
    /**
+    * Cancels all incomplete futures, interrupting running tasks.
+    *
+    * @param futuresToCancel the array of futures to cancel
     * @return the number of futures that are now cancelled
     */
    public static int cancelAllInterruptibly(final @NonNullByDefault({}) Future<?> @Nullable... futuresToCancel) {
-      return cancelAll(futuresToCancel, false);
+      return cancelAll(futuresToCancel, true);
    }
 
    /**
+    * Cancels all incomplete futures, interrupting running tasks.
+    *
+    * @param futuresToCancel the iterable of futures to cancel
     * @return the number of futures that are now cancelled
     */
    public static int cancelAllInterruptibly(final @Nullable Iterable<? extends @Nullable Future<?>> futuresToCancel) {
@@ -199,7 +234,10 @@ public abstract class Futures {
    }
 
    /**
-    * @return true if the future is now cancelled
+    * Cancels the future if it is incomplete, interrupting if running.
+    *
+    * @param futureToCancel the future to cancel
+    * @return {@code true} if the future is now cancelled
     */
    public static boolean cancelInterruptibly(final @Nullable Future<?> futureToCancel) {
       return cancel(futureToCancel, true);
@@ -207,16 +245,16 @@ public abstract class Futures {
 
    @SafeVarargs
    @SuppressWarnings("null")
-   public static <T> Combiner<T> combine(final @NonNullByDefault({}) CompletableFuture<? extends T> @Nullable... futures) {
+   public static <T> Combiner<T> combine(final @NonNullByDefault({}) Future<? extends T> @Nullable... futures) {
       if (futures == null || futures.length == 0)
          return combineInternal(List.of());
       return combineInternal(Arrays.asList(futures));
    }
 
-   public static <T> Combiner<T> combine(final @Nullable Iterable<? extends @Nullable CompletableFuture<? extends T>> futures) {
+   public static <T> Combiner<T> combine(final @Nullable Iterable<? extends @Nullable Future<? extends T>> futures) {
       if (futures == null)
          return combineInternal(List.of());
-      final var futuresInNewList = futures instanceof final Collection<? extends @Nullable CompletableFuture<? extends T>> coll //
+      final var futuresInNewList = futures instanceof final Collection<? extends @Nullable Future<? extends T>> coll //
             ? new ArrayList<>(coll)
             : StreamSupport.stream(futures.spliterator(), false).toList();
       return combineInternal(futuresInNewList);
@@ -225,24 +263,24 @@ public abstract class Futures {
    @SafeVarargs
    @SuppressWarnings("null")
    public static <T> Combiner<T> combineFlattened(
-         final @NonNullByDefault({}) CompletableFuture<? extends @Nullable Collection<T>> @Nullable... futures) {
+         final @NonNullByDefault({}) Future<? extends @Nullable Collection<T>> @Nullable... futures) {
       if (futures == null || futures.length == 0)
          return combineFlattenedInternal(List.of());
       return combineFlattenedInternal(Arrays.asList(futures));
    }
 
    public static <T> Combiner<T> combineFlattened(
-         final @Nullable Iterable<? extends @Nullable CompletableFuture<? extends @Nullable Collection<? extends T>>> futures) {
+         final @Nullable Iterable<? extends @Nullable Future<? extends @Nullable Collection<? extends T>>> futures) {
       if (futures == null)
-         return combineInternal(List.of());
-      final var futuresInNewList = futures instanceof final Collection<? extends @Nullable CompletableFuture<? extends @Nullable Collection<? extends T>>> coll
+         return combineFlattenedInternal(List.of());
+      final var futuresInNewList = futures instanceof final Collection<? extends @Nullable Future<? extends @Nullable Collection<? extends T>>> coll
             ? new ArrayList<>(coll)
             : StreamSupport.stream(futures.spliterator(), false).toList();
       return combineFlattenedInternal(futuresInNewList);
    }
 
    private static <T> Combiner<T> combineFlattenedInternal(
-         final Collection<? extends @Nullable CompletableFuture<? extends @Nullable Collection<? extends T>>> futures) {
+         final Collection<? extends @Nullable Future<? extends @Nullable Collection<? extends T>>> futures) {
       return new Combiner<>() {
          private boolean forwardCancellation = false;
 
@@ -261,7 +299,7 @@ public abstract class Futures {
 
             for (final var future : futures) {
                if (future != null) {
-                  combinedFuture = combinedFuture.thenCombine(future, (combined, result) -> {
+                  combinedFuture = combinedFuture.thenCombine(toCompletableFuture(future), (combined, result) -> {
                      if (result != null) {
                         combined.addAll(result);
                      }
@@ -284,7 +322,7 @@ public abstract class Futures {
 
             for (final var future : futures) {
                if (future != null) {
-                  combinedFuture = combinedFuture.thenCombine(future, (combined, result) -> {
+                  combinedFuture = combinedFuture.thenCombine(toCompletableFuture(future), (combined, result) -> {
                      if (result != null) {
                         combined.addAll(result);
                      }
@@ -307,7 +345,7 @@ public abstract class Futures {
 
             for (final var future : futures) {
                if (future != null) {
-                  combinedFuture = combinedFuture.thenCombine(future, (combined, result) -> result == null ? combined
+                  combinedFuture = combinedFuture.thenCombine(toCompletableFuture(future), (combined, result) -> result == null ? combined
                         : Stream.concat(combined, result.stream()));
                }
             }
@@ -319,7 +357,7 @@ public abstract class Futures {
       };
    }
 
-   private static <T> Combiner<T> combineInternal(final Collection<? extends @Nullable CompletableFuture<? extends T>> futures) {
+   private static <T> Combiner<T> combineInternal(final Collection<? extends @Nullable Future<? extends T>> futures) {
       return new Combiner<>() {
          private boolean forwardCancellation = false;
 
@@ -338,7 +376,7 @@ public abstract class Futures {
 
             for (final var future : futures) {
                if (future != null) {
-                  combinedFuture = combinedFuture.thenCombine(future, (combined, result) -> {
+                  combinedFuture = combinedFuture.thenCombine(toCompletableFuture(future), (combined, result) -> {
                      combined.add(result);
                      return combined;
                   });
@@ -359,7 +397,7 @@ public abstract class Futures {
 
             for (final var future : futures) {
                if (future != null) {
-                  combinedFuture = combinedFuture.thenCombine(future, (combined, result) -> {
+                  combinedFuture = combinedFuture.thenCombine(toCompletableFuture(future), (combined, result) -> {
                      combined.add(result);
                      return combined;
                   });
@@ -405,9 +443,9 @@ public abstract class Futures {
    }
 
    /**
-    * Propagates the cancellation of a {@link CompletableFuture} to other {@link Future}.
+    * Propagates the cancellation of a {@link CompletableFuture} to another {@link Future}.
     * <p>
-    * If the specified {@code from} future is cancelled, all futures in the provided {@code to} array will be cancelled too.
+    * If the specified {@code from} future is cancelled, the {@code to} future will be cancelled too.
     *
     * @param from the {@link CompletableFuture} whose cancellation should be propagated
     * @param to the {@link Future} instance that should be cancelled if {@code from} is cancelled
@@ -453,6 +491,7 @@ public abstract class Futures {
     * <p>
     * If at least one future was cancelled or failed, this method will throw the corresponding exception.
     *
+    * @param futures the futures to wait for
     * @return a list of results from all completed futures
     *
     * @throws CancellationException if any future was cancelled
@@ -477,9 +516,12 @@ public abstract class Futures {
    /**
     * Waits up to the specified timeout for all futures to complete and returns a list of results from all normally completed futures.
     * <p>
-    * If at least one future was cancelled or failed or did not complete within the specified time, this method will throw
+    * If at least one future was cancelled, failed, or did not complete within the specified time, this method will throw
     * the corresponding exception.
     *
+    * @param futures the futures to wait for
+    * @param timeout the maximum time to wait
+    * @param unit the time unit of the timeout argument
     * @return a list of results from all completed futures
     *
     * @throws CancellationException if any future was cancelled
@@ -509,6 +551,7 @@ public abstract class Futures {
     * <p>
     * If at least one future was cancelled or failed, this method will throw the corresponding exception.
     *
+    * @param futures the futures to wait for
     * @return a list of results from all completed futures
     *
     * @throws CancellationException if any future was cancelled
@@ -532,9 +575,12 @@ public abstract class Futures {
    /**
     * Waits up to the specified timeout for all futures to complete and returns a list of results from all normally completed futures.
     * <p>
-    * If at least one future was cancelled or failed or did not complete within the specified time, this method will throw
+    * If at least one future was cancelled, failed, or did not complete within the specified time, this method will throw
     * the corresponding exception.
     *
+    * @param futures the futures to wait for
+    * @param timeout the maximum time to wait
+    * @param unit the time unit of the timeout argument
     * @return a list of results from all completed futures
     *
     * @throws CancellationException if any future was cancelled
@@ -543,7 +589,7 @@ public abstract class Futures {
     * @throws TimeoutException if the wait timed out before all futures completed
     */
    public static <T> List<T> getAll(final @Nullable Iterable<? extends @Nullable Future<? extends T>> futures, final long timeout,
-         final TimeUnit unit) throws InterruptedException, ExecutionException, TimeoutException {
+         final TimeUnit unit) throws ExecutionException, InterruptedException, TimeoutException {
       if (futures == null)
          return List.of();
 
@@ -567,8 +613,8 @@ public abstract class Futures {
     * not be present in the {@link Results} object.
     * </p>
     *
-    * @return a {@link Results} object containing a map of completed futures with their results and a map of futures that
-    *         were cancelled or failed with their corresponding exceptions.
+    * @param futures the futures to check
+    * @return a {@link Results} object containing completed results and exceptions
     */
    @SafeVarargs
    @SuppressWarnings("null")
@@ -586,8 +632,8 @@ public abstract class Futures {
     * not be present in the {@link Results} object.
     * </p>
     *
-    * @return a {@link Results} object containing a map of completed futures with their results and a map of futures that
-    *         were cancelled or failed with their corresponding exceptions.
+    * @param futures the futures to check
+    * @return a {@link Results} object containing completed results and exceptions
     */
    public static <T> Results<T> getAllNow(final @Nullable Iterable<? extends @Nullable Future<? extends T>> futures) {
       if (futures == null)
@@ -610,8 +656,8 @@ public abstract class Futures {
     * not be present in the {@link Results} object.
     * </p>
     *
-    * @return a {@link Results} object containing a map of completed futures with their results and a map of futures that
-    *         were cancelled or failed with their corresponding exceptions.
+    * @param futures the futures to check
+    * @return a {@link Results} object containing completed results and exceptions
     */
    public static <T> Results<T> getAllNow(final @Nullable Stream<? extends @Nullable Future<? extends T>> futures) {
       if (futures == null)
@@ -640,10 +686,11 @@ public abstract class Futures {
    }
 
    /**
-    * Returns the result of the given {@link Future} if it is already completed wrapped in an {@link Optional},
-    * or an empty {@link Optional} if the future is incomplete, cancelled or failed.
+    * Returns the result of the given {@link Future} if it is already completed, wrapped in an {@link Optional},
+    * or an empty {@link Optional} if the future is incomplete, cancelled, or failed.
     *
-    * @return an {@link Optional} containing the result of the future if completed normally, or an empty {@link Optional} otherwise
+    * @param future the future to get the result from
+    * @return an {@link Optional} containing the result if completed normally, or empty otherwise
     */
    public static <T> Optional<T> getNowOptional(final Future<T> future) {
       if (future.isDone())
@@ -655,12 +702,14 @@ public abstract class Futures {
     * Returns the result of the given {@link Future} if it is already completed, or the value computed by
     * {@code fallbackComputer} if the future is incomplete or failed.
     *
-    * @return the result of the future if completed, otherwise the value computed by {@code fallbackComputer}
+    * @param future the future to get the result from
+    * @param fallbackComputer a function to compute the fallback value
+    * @return the result if completed normally, or the computed fallback value
     */
    public static <T> T getNowOrComputeFallback(final Future<T> future,
          final BiFunction<Future<T>, @Nullable Exception, T> fallbackComputer) {
       if (future.isDone())
-         return getOrComputeFallback(future, 0, TimeUnit.SECONDS, fallbackComputer);
+         return getOrComputeFallback(future, fallbackComputer, 0, TimeUnit.SECONDS);
       return fallbackComputer.apply(future, null);
    }
 
@@ -668,19 +717,40 @@ public abstract class Futures {
     * Returns the result of the given {@link Future} if it is already completed, or the specified
     * {@code fallback} if the future is incomplete or failed.
     *
-    * @return the result of the future if completed, otherwise {@code fallback}
+    * @param future the future to get the result from
+    * @param fallback the fallback value to return if the future is incomplete or failed
+    * @return the result if completed normally, or the fallback value
     */
    public static <T> T getNowOrFallback(final Future<T> future, final T fallback) {
       if (future.isDone())
-         return getOrFallback(future, 0, TimeUnit.SECONDS, fallback);
+         return getOrFallback(future, fallback, 0, TimeUnit.SECONDS);
       return fallback;
+   }
+
+   /**
+    * Attempts to retrieve the result of the given {@link Future}.
+    *
+    * @return an {@link Optional} containing the result of the future if it completes normally, or an empty {@link Optional} otherwise
+    */
+   public static <T> Optional<T> getOptional(final Future<T> future) {
+      try {
+         return Optional.ofNullable(future.get());
+      } catch (final InterruptedException ex) {
+         Thread.interrupted();
+         LOG.log(Level.DEBUG, ex.getMessage(), ex);
+      } catch (final Exception ex) {
+         LOG.log(Level.DEBUG, ex.getMessage(), ex);
+      }
+      return Optional.empty();
    }
 
    /**
     * Attempts to retrieve the result of the given {@link Future} within the specified timeout.
     *
-    * @return an {@link Optional} containing the result of the future if completed normally within the timeout,
-    *         or an empty {@link Optional} otherwise
+    * @param future the future to get the result from
+    * @param timeout the maximum time to wait
+    * @param unit the time unit of the timeout argument
+    * @return an {@link Optional} containing the result if completed within the timeout, or empty otherwise
     */
    public static <T> Optional<T> getOptional(final Future<T> future, final long timeout, final TimeUnit unit) {
       try {
@@ -699,12 +769,38 @@ public abstract class Futures {
    }
 
    /**
-    * Attempts to retrieve the result of the given {@link Future} within the specified timeout.
+    * Waits for the given {@link Future} to complete and returns its result if it completes normally.
+    * If the future is interrupted, cancelled, or failed, the value computed by {@code fallbackComputer} is returned instead.
     *
-    * @return the result of the future if completed normally, otherwise the value computed by {@code fallbackComputer}
+    * @param future the future to get the result from
+    * @param fallbackComputer a function to compute the fallback value
+    * @return the result if completed normally, or the computed fallback value
     */
-   public static <T> T getOrComputeFallback(final Future<T> future, final long timeout, final TimeUnit unit,
-         final BiFunction<Future<T>, @Nullable Exception, T> fallbackComputer) {
+   public static <T> T getOrComputeFallback(final Future<T> future, final BiFunction<Future<T>, @Nullable Exception, T> fallbackComputer) {
+      try {
+         return future.get();
+      } catch (final InterruptedException ex) {
+         Thread.interrupted();
+         LOG.log(Level.DEBUG, ex.getMessage(), ex);
+         return fallbackComputer.apply(future, ex);
+      } catch (final Exception ex) {
+         LOG.log(Level.DEBUG, ex.getMessage(), ex);
+         return fallbackComputer.apply(future, ex);
+      }
+   }
+
+   /**
+    * Waits up to the specified timeout for the given {@link Future} to complete and returns its result if it completes normally.
+    * If the future is interrupted, timed out, cancelled, or failed, the value computed by {@code fallbackComputer} is returned instead.
+    *
+    * @param future the future to get the result from
+    * @param fallbackComputer a function to compute the fallback value
+    * @param timeout the maximum time to wait
+    * @param unit the time unit of the timeout argument
+    * @return the result if completed within the timeout, or the computed fallback value
+    */
+   public static <T> T getOrComputeFallback(final Future<T> future, final BiFunction<Future<T>, @Nullable Exception, T> fallbackComputer,
+         final long timeout, final TimeUnit unit) {
       try {
          return future.get(timeout, unit);
       } catch (final TimeoutException ex) {
@@ -723,11 +819,16 @@ public abstract class Futures {
    }
 
    /**
-    * Attempts to retrieve the result of the given {@link Future} within the specified timeout.
+    * Waits up to the specified timeout for the given {@link Future} to complete and returns its result if it completes normally.
+    * If the future is interrupted, timed out, cancelled, or failed, the provided fallback value is returned instead.
     *
-    * @return the result of the future if completed normally, otherwise {@code fallback}
+    * @param future the future to get the result from
+    * @param fallback the fallback value to return if the future completes with an exception
+    * @param timeout the maximum time to wait
+    * @param unit the time unit of the timeout argument
+    * @return the result if completed within the timeout, or the fallback value
     */
-   public static <T> T getOrFallback(final Future<T> future, final long timeout, final TimeUnit unit, final T fallback) {
+   public static <T> T getOrFallback(final Future<T> future, final T fallback, final long timeout, final TimeUnit unit) {
       try {
          return future.get(timeout, unit);
       } catch (final TimeoutException ex) {
@@ -744,11 +845,31 @@ public abstract class Futures {
    }
 
    /**
+    * Waits for the given {@link Future} to complete and returns its result if it completes normally.
+    * If the future is interrupted, cancelled, or failed, the provided fallback value is returned instead.
+    *
+    * @param future the future to get the result from
+    * @param fallback the fallback value to return if the future completes with an exception
+    * @return the result if completed normally, or the fallback value
+    */
+   public static <T> T getOrFallback(final Future<T> future, final T fallback) {
+      try {
+         return future.get();
+      } catch (final InterruptedException ex) {
+         Thread.interrupted();
+         LOG.log(Level.DEBUG, ex.getMessage(), ex);
+      } catch (final Exception ex) {
+         LOG.log(Level.DEBUG, ex.getMessage(), ex);
+      }
+      return fallback;
+   }
+
+   /**
     * Waits for all futures to complete and returns a {@link Results} object containing results from normally completed futures
     * and exceptions from futures that were cancelled or failed.
     *
-    * @return a {@link Results} object containing a map of completed futures with their results and a map of futures that
-    *         were cancelled or failed with their corresponding exceptions.
+    * @param futures the futures to wait for
+    * @return a {@link Results} object containing completed results and exceptions
     */
    @SafeVarargs
    @SuppressWarnings("null")
@@ -761,12 +882,12 @@ public abstract class Futures {
 
    /**
     * Waits up to the specified timeout for all futures to complete and returns a {@link Results} object containing results
-    * from normally completed futures and exceptions from futures that were cancelled, interrupted, timed-out, or failed.
+    * from normally completed futures and exceptions from futures that were cancelled, interrupted, timed out, or failed.
     *
+    * @param futures the futures to wait for
     * @param timeout the maximum time to wait
-    * @param unit the time unit of the {@code timeout} argument
-    * @return a {@link Results} object containing a map of completed futures with their results and a map of futures that
-    *         were cancelled, interrupted, timed-out, or failed with their corresponding exceptions.
+    * @param unit the time unit of the timeout argument
+    * @return a {@link Results} object containing completed results and exceptions
     */
    public static <T> Results<T> joinAll(final @Nullable Future<? extends T> @Nullable [] futures, final long timeout, final TimeUnit unit) {
       if (futures == null || futures.length == 0)
@@ -779,8 +900,8 @@ public abstract class Futures {
     * Waits for all futures to complete and returns a {@link Results} object containing results from normally completed futures
     * and exceptions from futures that were cancelled or failed.
     *
-    * @return a {@link Results} object containing a map of completed futures with their results and a map of futures that
-    *         were cancelled or failed with their corresponding exceptions.
+    * @param futures the futures to wait for
+    * @return a {@link Results} object containing completed results and exceptions
     */
    public static <T> Results<T> joinAll(final @Nullable Iterable<? extends @Nullable Future<? extends T>> futures) {
       if (futures == null)
@@ -797,12 +918,12 @@ public abstract class Futures {
 
    /**
     * Waits up to the specified timeout for all futures to complete and returns a {@link Results} object containing results
-    * from normally completed futures and exceptions from futures that were cancelled, interrupted, timed-out, or failed.
+    * from normally completed futures and exceptions from futures that were cancelled, interrupted, timed out, or failed.
     *
+    * @param futures the futures to wait for
     * @param timeout the maximum time to wait
-    * @param unit the time unit of the {@code timeout} argument
-    * @return a {@link Results} object containing a map of completed futures with their results and a map of futures that
-    *         were cancelled, interrupted, timed-out, or failed with their corresponding exceptions.
+    * @param unit the time unit of the timeout argument
+    * @return a {@link Results} object containing completed results and exceptions
     */
    public static <T> Results<T> joinAll(final @Nullable Iterable<? extends @Nullable Future<? extends T>> futures, final long timeout,
          final TimeUnit unit) {
@@ -822,8 +943,8 @@ public abstract class Futures {
     * Waits for all futures to complete and returns a {@link Results} object containing results from normally completed futures
     * and exceptions from futures that were cancelled or failed.
     *
-    * @return a {@link Results} object containing a map of completed futures with their results and a map of futures that
-    *         were cancelled or failed with their corresponding exceptions.
+    * @param futures the futures to wait for
+    * @return a {@link Results} object containing completed results and exceptions
     */
    public static <T> Results<T> joinAll(final @Nullable Stream<? extends @Nullable Future<? extends T>> futures) {
       if (futures == null)
@@ -853,12 +974,12 @@ public abstract class Futures {
 
    /**
     * Waits up to the specified timeout for all futures to complete and returns a {@link Results} object containing results
-    * from normally completed futures and exceptions from futures that were cancelled, interrupted, timed-out, or failed.
+    * from normally completed futures and exceptions from futures that were cancelled, interrupted, timed out, or failed.
     *
+    * @param futures the futures to wait for
     * @param timeout the maximum time to wait
-    * @param unit the time unit of the {@code timeout} argument
-    * @return a {@link Results} object containing a map of completed futures with their results and a map of futures that
-    *         were cancelled, interrupted, timed-out, or failed with their corresponding exceptions.
+    * @param unit the time unit of the timeout argument
+    * @return a {@link Results} object containing completed results and exceptions
     */
    public static <T> Results<T> joinAll(final @Nullable Stream<? extends @Nullable Future<? extends T>> futures, final long timeout,
          final TimeUnit unit) {
@@ -891,4 +1012,22 @@ public abstract class Futures {
             ? Results.empty()
             : new Results<>(results, exceptions);
    }
+
+   private static <T> CompletableFuture<T> toCompletableFuture(final Future<T> future) {
+      if (future instanceof final CompletableFuture<T> cf)
+         return cf;
+      final var cf = CompletableFuture.supplyAsync(() -> {
+         try {
+            return future.get();
+         } catch (final InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new CompletionException(ex);
+         } catch (final ExecutionException ex) {
+            throw new CompletionException(ex.getCause());
+         }
+      });
+      forwardCancellation(cf, future);
+      return cf;
+   }
+
 }

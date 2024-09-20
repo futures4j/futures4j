@@ -223,7 +223,7 @@ class FuturesTest extends AbstractFutureTest {
       {
          final var future = ExtendedFuture.completedFuture("Success");
 
-         final var result = Futures.getOrFallback(future, 100, TimeUnit.MILLISECONDS, "Fallback");
+         final var result = Futures.getOrFallback(future, "Fallback", 100, TimeUnit.MILLISECONDS);
          assertThat(result).isEqualTo("Success");
 
          assertThat(Futures.getOptional(future, 100, TimeUnit.MILLISECONDS)).hasValue("Success");
@@ -232,7 +232,7 @@ class FuturesTest extends AbstractFutureTest {
       {
          final var future = ExtendedFuture.create();
 
-         final var result = Futures.getOrFallback(future, 100, TimeUnit.MILLISECONDS, "Fallback");
+         final var result = Futures.getOrFallback(future, "Fallback", 100, TimeUnit.MILLISECONDS);
          assertThat(result).isEqualTo("Fallback");
 
          assertThat(Futures.getOptional(future, 100, TimeUnit.MILLISECONDS)).isNotPresent();
@@ -242,7 +242,7 @@ class FuturesTest extends AbstractFutureTest {
          final var future = ExtendedFuture.create();
          future.cancel(true);
 
-         final var result = Futures.getOrFallback(future, 100, TimeUnit.MILLISECONDS, "Fallback");
+         final var result = Futures.getOrFallback(future, "Fallback", 100, TimeUnit.MILLISECONDS);
          assertThat(result).isEqualTo("Fallback");
 
          assertThat(Futures.getOptional(future, 100, TimeUnit.MILLISECONDS)).isNotPresent();
@@ -252,7 +252,7 @@ class FuturesTest extends AbstractFutureTest {
          final var future = ExtendedFuture.create();
          future.completeExceptionally(new RuntimeException());
 
-         final var result = Futures.getOrFallback(future, 100, TimeUnit.MILLISECONDS, "Fallback");
+         final var result = Futures.getOrFallback(future, "Fallback", 100, TimeUnit.MILLISECONDS);
          assertThat(result).isEqualTo("Fallback");
 
          assertThat(Futures.getOptional(future, 100, TimeUnit.MILLISECONDS)).isNotPresent();

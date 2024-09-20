@@ -32,35 +32,44 @@ import io.github.futures4j.util.ThrowingRunnable;
 import io.github.futures4j.util.ThrowingSupplier;
 
 /**
- * An enhanced version of {@link CompletableFuture} that:
+ * An enhanced version of {@link CompletableFuture} that provides additional features:
  * <ol>
- * <li>supports task thread interruption via <code>cancel(true)</code>, controllable via {@link #asNonInterruptible()} and
- * {@link #withInterruptibleStages(boolean)}
- * <li>allows dependent stages cancel preceding stages, controllable via {@link #asCancellableByDependents(boolean)}
- * <li>allows running tasks that throw checked exceptions via e.g. {@link #runAsync(ThrowingRunnable)}, etc.
- * <li>allows creating a read-only view of a future using {@link #asReadOnly(ReadOnlyMode)}
- * <li>allows defining a default executor for this future and all subsequent stages e.g. via {@link #withDefaultExecutor(Executor)} or
- * {@link Builder#withDefaultExecutor(Executor)}
- * <li>offers additional convenience method such as {@link #isCompleted()}, {@link #isFailed()}, {@link #getCompletionState()},
- * {@link #getNowOptional()}, {@link #getOptional(long, TimeUnit)},
- * {@link #getNowOrFallback(Object)}, {@link #getOrFallback(long, TimeUnit, Object)}
+ * <li>Supports task thread interruption via <code>cancel(true)</code>, controllable via {@link #asNonInterruptible()} and
+ * {@link #withInterruptibleStages(boolean)}</li>
+ * <li>Allows dependent stages to cancel preceding stages, controllable via {@link #asCancellableByDependents(boolean)}</li>
+ * <li>Enables running tasks that throw checked exceptions, e.g., {@link #runAsync(ThrowingRunnable)}</li>
+ * <li>Allows creating a read-only view of a future using {@link #asReadOnly(ReadOnlyMode)}</li>
+ * <li>Enables defining a default executor for this future and all subsequent stages, e.g., via {@link #withDefaultExecutor(Executor)} or
+ * {@link Builder#withDefaultExecutor(Executor)}</li>
+ * <li>Offers additional convenience methods such as {@link #isCompleted()}, {@link #isFailed()}, {@link #getCompletionState()},
+ * {@link #getNowOptional()}, {@link #getNowOrFallback(Object)}, {@link #getOptional(long, TimeUnit)}, {@link #getOrFallback(Object)},
+ * {@link #getOrFallback(Object, long, TimeUnit)}</li>
  * </ol>
  * <p>
  * For more information on issues addressed by this class, see:
+ * </p>
  * <ul>
- * <li>https://stackoverflow.com/questions/25417881/canceling-a-completablefuture-chain
- * <li>https://stackoverflow.com/questions/36727820/cancellation-of-completablefuture-controlled-by-executorservice
- * <li>https://stackoverflow.com/questions/62106428/is-there-a-better-way-for-cancelling-a-chain-of-futures-in-java
+ * <li>https://stackoverflow.com/questions/25417881/canceling-a-completablefuture-chain</li>
+ * <li>https://stackoverflow.com/questions/36727820/cancellation-of-completablefuture-controlled-by-executorservice</li>
+ * <li>https://stackoverflow.com/questions/62106428/is-there-a-better-way-for-cancelling-a-chain-of-futures-in-java</li>
+ * </ul>
  * and:
- * <li>https://stackoverflow.com/questions/29013831/how-to-interrupt-underlying-execution-of-completablefuture
- * <li>https://nurkiewicz.com/2015/03/completablefuture-cant-be-interrupted.html
- * <li>https://blog.tremblay.pro/2017/08/supply-async.html
+ * <ul>
+ * <li>https://stackoverflow.com/questions/29013831/how-to-interrupt-underlying-execution-of-completablefuture</li>
+ * <li>https://nurkiewicz.com/2015/03/completablefuture-cant-be-interrupted.html</li>
+ * <li>https://blog.tremblay.pro/2017/08/supply-async.html</li>
  * </ul>
  *
  * @author <a href="https://sebthom.de/">Sebastian Thomschke</a>
+ * @param <T> the result type returned by this {@code ExtendedFuture}
  */
 public class ExtendedFuture<T> extends CompletableFuture<T> {
 
+   /**
+    * A builder class for creating customized instances of {@link ExtendedFuture}.
+    *
+    * @param <V> the result type returned by the future
+    */
    public static class Builder<V> {
 
       private boolean cancellableByDependents = false;
@@ -72,6 +81,11 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       protected Builder() {
       }
 
+      /**
+       * Builds an {@link ExtendedFuture} instance with the configured settings.
+       *
+       * @return a new {@link ExtendedFuture} instance
+       */
       public ExtendedFuture<V> build() {
          final var wrapped = this.wrapped;
          if (wrapped == null)
@@ -81,26 +95,56 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          return new WrappingFuture<>(wrapped, defaultExecutor, cancellableByDependents, interruptibleStages);
       }
 
+      /**
+       * Sets whether the future can be cancelled by its dependent stages.
+       *
+       * @param isCancellableByDependents {@code true} if the future can be cancelled by dependents, {@code false} otherwise
+       * @return this {@code Builder} instance for method chaining
+       */
       public Builder<V> withCancellableByDependents(final boolean isCancellableByDependents) {
          cancellableByDependents = isCancellableByDependents;
          return this;
       }
 
+      /**
+       * Sets the default executor for this future and all subsequent stages.
+       *
+       * @param defaultExecutor the default {@link Executor} to use
+       * @return this {@code Builder} instance for method chaining
+       */
       public Builder<V> withDefaultExecutor(final @Nullable Executor defaultExecutor) {
          this.defaultExecutor = defaultExecutor;
          return this;
       }
 
+      /**
+       * Sets whether the future is interruptible.
+       *
+       * @param interruptible {@code true} if the future is interruptible, {@code false} otherwise
+       * @return this {@code Builder} instance for method chaining
+       */
       public Builder<V> withInterruptible(final boolean interruptible) {
          this.interruptible = interruptible;
          return this;
       }
 
+      /**
+       * Sets whether new stages are interruptible.
+       *
+       * @param interruptibleStages {@code true} if new stages are interruptible, {@code false} otherwise
+       * @return this {@code Builder} instance for method chaining
+       */
       public Builder<V> withInterruptibleStages(final boolean interruptibleStages) {
          this.interruptibleStages = interruptibleStages;
          return this;
       }
 
+      /**
+       * Wraps an existing {@link CompletableFuture} with an {@link ExtendedFuture}.
+       *
+       * @param wrapped the {@link CompletableFuture} to wrap
+       * @return this {@code Builder} instance for method chaining
+       */
       @SuppressWarnings("unchecked")
       public <T extends V> Builder<T> withWrapped(final @Nullable CompletableFuture<T> wrapped) {
          this.wrapped = (CompletableFuture<V>) wrapped;
@@ -156,12 +200,15 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       }
    }
 
+   /**
+    * Modes for creating a read-only view of an {@link ExtendedFuture}.
+    */
    public enum ReadOnlyMode {
 
-      /** mutation attempts will throw {@link UnsupportedOperationException} */
+      /** Mutation attempts will throw {@link UnsupportedOperationException}. */
       THROW_ON_MUTATION,
 
-      /** mutation attempts will be silently ignored */
+      /** Mutation attempts will be silently ignored. */
       IGNORE_MUTATION
    }
 
@@ -225,6 +272,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    /**
     * A holder for new incomplete {@link InterruptibleFuture} instances.
     * It is used to enable interruptible tasks.
+    *
+    * @param <T> the result type of the future
     */
    private record NewIncompleteFutureHolder<T>(InterruptibleFuture<T> future, long expiresOn) {
 
@@ -287,6 +336,10 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    private static final Logger LOG = System.getLogger(Futures.class.getName());
 
    /**
+    * Returns a new {@link ExtendedFuture} that is completed when all of the given futures complete.
+    *
+    * @param cfs the array of {@link CompletableFuture} instances
+    * @return an {@link ExtendedFuture} that completes when all given futures complete
     * @see CompletableFuture#allOf(CompletableFuture...)
     */
    public static ExtendedFuture<@Nullable Void> allOf(final CompletableFuture<?>... cfs) {
@@ -294,16 +347,33 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    /**
+    * Returns a new {@link ExtendedFuture} that is completed when any of the given futures complete.
+    *
+    * @param cfs the array of {@link CompletableFuture} instances
+    * @return an {@link ExtendedFuture} that completes when any given future completes
     * @see CompletableFuture#anyOf(CompletableFuture...)
     */
    public static ExtendedFuture<@Nullable Object> anyOf(final CompletableFuture<?>... cfs) {
       return ExtendedFuture.from(CompletableFuture.anyOf(cfs));
    }
 
+   /**
+    * Creates a new {@link Builder} for constructing an {@link ExtendedFuture}.
+    *
+    * @param <V> the result type of the future
+    * @return a new {@link Builder} instance
+    */
    public static <V> Builder<V> builder() {
       return new Builder<>();
    }
 
+   /**
+    * Returns a completed {@link ExtendedFuture} with the given value.
+    *
+    * @param value the value to complete the future with
+    * @param <V> the result type of the future
+    * @return a completed {@link ExtendedFuture}
+    */
    public static <V> ExtendedFuture<V> completedFuture(final V value) {
       final var f = new ExtendedFuture<V>(null, false, true);
       f.complete(value);
@@ -311,13 +381,23 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    /**
-    * @return a new {@link ExtendedFuture} with {@link #isCancellableByDependents()} set to {@code false} and
-    *         {@link #isInterruptibleStages()} set to {@code true}.
+    * Returns a new incomplete {@link ExtendedFuture} with {@link #isCancellableByDependents()} set to {@code false} and
+    * {@link #isInterruptibleStages()} set to {@code true}.
+    *
+    * @param <V> the result type of the future
+    * @return a new incomplete {@link ExtendedFuture}
     */
    public static <V> ExtendedFuture<V> create() {
       return new ExtendedFuture<>(null, false, true);
    }
 
+   /**
+    * Returns a completed {@link ExtendedFuture} that completed exceptionally with the given exception.
+    *
+    * @param ex the exception to complete the future with
+    * @param <V> the result type of the future
+    * @return a completed {@link ExtendedFuture} that completed exceptionally
+    */
    public static <V> ExtendedFuture<V> failedFuture(final Throwable ex) {
       final var f = new ExtendedFuture<V>(null, false, true);
       f.completeExceptionally(ex);
@@ -325,10 +405,15 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    /**
-    * Derives an {@link ExtendedFuture} from a {@link CompletableFuture} with {@link #isCancellableByDependents()} set to {@code false}.
+    * Wraps a given {@link CompletableFuture} into an {@link ExtendedFuture} with {@link #isCancellableByDependents()} set to {@code false}.
     * <p>
     * Returns the given future if it is already an instance of {@link ExtendedFuture} with {@link #isCancellableByDependents()} set to
     * {@code false}.
+    * </p>
+    *
+    * @param source the {@link CompletableFuture} to wrap
+    * @param <V> the result type of the future
+    * @return an {@link ExtendedFuture} wrapping the given future
     */
    public static <V> ExtendedFuture<V> from(final CompletableFuture<V> source) {
       if (source instanceof final ExtendedFuture<V> cf)
@@ -336,22 +421,55 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       return new WrappingFuture<>(source, source.defaultExecutor(), false, true);
    }
 
+   /**
+    * Returns an {@link ExtendedFuture} that runs the given runnable asynchronously.
+    *
+    * @param runnable the {@link Runnable} to execute
+    * @return an {@link ExtendedFuture} representing the asynchronous computation
+    */
    public static ExtendedFuture<@Nullable Void> runAsync(final Runnable runnable) {
       return completedFuture(null).thenRunAsync(runnable);
    }
 
+   /**
+    * Returns an {@link ExtendedFuture} that runs the given runnable asynchronously using the provided executor.
+    *
+    * @param runnable the {@link Runnable} to execute
+    * @param executor the {@link Executor} to use for execution
+    * @return an {@link ExtendedFuture} representing the asynchronous computation
+    */
    public static ExtendedFuture<@Nullable Void> runAsync(final Runnable runnable, final Executor executor) {
       return completedFuture(null).thenRunAsync(runnable, executor);
    }
 
+   /**
+    * Returns an {@link ExtendedFuture} that runs the given throwing runnable asynchronously.
+    *
+    * @param runnable the {@link ThrowingRunnable} to execute
+    * @return an {@link ExtendedFuture} representing the asynchronous computation
+    */
    public static ExtendedFuture<@Nullable Void> runAsync(final ThrowingRunnable<?> runnable) {
       return completedFuture(null).thenRunAsync(runnable);
    }
 
+   /**
+    * Returns an {@link ExtendedFuture} that runs the given throwing runnable asynchronously using the provided executor.
+    *
+    * @param runnable the {@link ThrowingRunnable} to execute
+    * @param executor the {@link Executor} to use for execution
+    * @return an {@link ExtendedFuture} representing the asynchronous computation
+    */
    public static ExtendedFuture<@Nullable Void> runAsync(final ThrowingRunnable<?> runnable, final Executor executor) {
       return completedFuture(null).thenRunAsync(runnable, executor);
    }
 
+   /**
+    * Returns an {@link ExtendedFuture} with a specified default executor that runs the given throwing runnable asynchronously.
+    *
+    * @param runnable the {@link ThrowingRunnable} to execute
+    * @param defaultExecutor the default {@link Executor} to use for execution
+    * @return an {@link ExtendedFuture} representing the asynchronous computation
+    */
    public static ExtendedFuture<@Nullable Void> runAsyncWithDefaultExecutor(final ThrowingRunnable<?> runnable,
          final Executor defaultExecutor) {
       final var f = new ExtendedFuture<>(defaultExecutor, false, true);
@@ -359,22 +477,60 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       return f.thenRunAsync(runnable);
    }
 
+   /**
+    * Returns an {@link ExtendedFuture} that runs the given supplier asynchronously.
+    *
+    * @param supplier the {@link Supplier} to execute
+    * @param <V> the result type of the future
+    * @return an {@link ExtendedFuture} representing the asynchronous computation
+    */
    public static <V> ExtendedFuture<V> supplyAsync(final Supplier<V> supplier) {
       return completedFuture(null).thenApplyAsync(unused -> supplier.get());
    }
 
+   /**
+    * Returns an {@link ExtendedFuture} that runs the given supplier asynchronously using the provided executor.
+    *
+    * @param supplier the {@link Supplier} to execute
+    * @param executor the {@link Executor} to use for execution
+    * @param <V> the result type of the future
+    * @return an {@link ExtendedFuture} representing the asynchronous computation
+    */
    public static <V> ExtendedFuture<V> supplyAsync(final Supplier<V> supplier, final Executor executor) {
       return completedFuture(null).thenApplyAsync(unused -> supplier.get(), executor);
    }
 
+   /**
+    * Returns an {@link ExtendedFuture} that runs the given throwing supplier asynchronously.
+    *
+    * @param supplier the {@link ThrowingSupplier} to execute
+    * @param <V> the result type of the future
+    * @return an {@link ExtendedFuture} representing the asynchronous computation
+    */
    public static <V> ExtendedFuture<V> supplyAsync(final ThrowingSupplier<V, ?> supplier) {
       return completedFuture(null).thenApplyAsync(unused -> supplier.get());
    }
 
+   /**
+    * Returns an {@link ExtendedFuture} that runs the given throwing supplier asynchronously using the provided executor.
+    *
+    * @param supplier the {@link ThrowingSupplier} to execute
+    * @param executor the {@link Executor} to use for execution
+    * @param <V> the result type of the future
+    * @return an {@link ExtendedFuture} representing the asynchronous computation
+    */
    public static <V> ExtendedFuture<V> supplyAsync(final ThrowingSupplier<V, ?> supplier, final Executor executor) {
       return completedFuture(null).thenApplyAsync(unused -> supplier.get(), executor);
    }
 
+   /**
+    * Returns an {@link ExtendedFuture} with a specified default executor that runs the given throwing supplier asynchronously.
+    *
+    * @param supplier the {@link ThrowingSupplier} to execute
+    * @param defaultExecutor the default {@link Executor} to use for execution
+    * @param <V> the result type of the future
+    * @return an {@link ExtendedFuture} representing the asynchronous computation
+    */
    public static <V> ExtendedFuture<V> supplyAsyncWithDefaultExecutor(final ThrowingSupplier<V, ?> supplier,
          final Executor defaultExecutor) {
       final var f = new ExtendedFuture<>(defaultExecutor, false, true);
@@ -386,7 +542,6 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    protected final boolean cancellableByDependents;
    protected final boolean interruptibleStages;
    protected final Executor defaultExecutor;
-   protected volatile String description = "";
 
    protected ExtendedFuture(@Nullable final Executor defaultExecutor, final boolean cancellableByDependents,
          final boolean interruptibleStages) {
@@ -823,6 +978,16 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     * @return an {@link Optional} containing the result of the future if completed normally within the timeout,
     *         or an empty {@link Optional} otherwise
     */
+   public Optional<T> getOptional() {
+      return Futures.getOptional(this);
+   }
+
+   /**
+    * Attempts to retrieve the result this future within the specified timeout.
+    *
+    * @return an {@link Optional} containing the result of the future if completed normally within the timeout,
+    *         or an empty {@link Optional} otherwise
+    */
    public Optional<T> getOptional(final long timeout, final TimeUnit unit) {
       return Futures.getOptional(this, timeout, unit);
    }
@@ -832,9 +997,18 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     *
     * @return the result of the future if completed normally within given timeout, the value computed by {@code fallbackComputer}
     */
-   public T getOrComputeFallback(final long timeout, final TimeUnit unit,
-         final BiFunction<Future<T>, @Nullable Exception, T> fallbackComputer) {
-      return Futures.getOrComputeFallback(this, timeout, unit, fallbackComputer);
+   public T getOrComputeFallback(final BiFunction<Future<T>, @Nullable Exception, T> fallbackComputer, final long timeout,
+         final TimeUnit unit) {
+      return Futures.getOrComputeFallback(this, fallbackComputer, timeout, unit);
+   }
+
+   /**
+    * Attempts to retrieve the result of this future.
+    *
+    * @return the result of the future if completed normally, otherwise {@code fallback}
+    */
+   public T getOrFallback(final T fallback) {
+      return Futures.getOrFallback(this, fallback);
    }
 
    /**
@@ -842,8 +1016,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     *
     * @return the result of the future if completed normally within given timeout, otherwise {@code fallback}
     */
-   public T getOrFallback(final long timeout, final TimeUnit unit, final T fallback) {
-      return Futures.getOrFallback(this, timeout, unit, fallback);
+   public T getOrFallback(final T fallback, final long timeout, final TimeUnit unit) {
+      return Futures.getOrFallback(this, fallback, timeout, unit);
    }
 
    @Override
@@ -1450,7 +1624,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          case CANCELLED -> "cancelled";
          case COMPLETED -> "completed";
          case FAILED -> "failed";
-      } + (description.isEmpty() ? "" : ", \"" + description + "\"") + "]";
+      } + "]";
    }
 
    @Override
@@ -1497,18 +1671,6 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
             ? new InterruptibleWrappingFuture<>((InterruptibleFuture<T>) this, defaultExecutor, cancellableByDependents,
                interruptibleStages)
             : new WrappingFuture<>(this, defaultExecutor, cancellableByDependents, interruptibleStages);
-   }
-
-   public ExtendedFuture<T> withDescription(final String description) {
-      if (this.description.equals(description))
-         return this;
-
-      final var future = isInterruptible() //
-            ? new InterruptibleWrappingFuture<>((InterruptibleFuture<T>) this, defaultExecutor, cancellableByDependents,
-               interruptibleStages)
-            : new WrappingFuture<>(this, defaultExecutor, cancellableByDependents, interruptibleStages);
-      future.description = description;
-      return future;
    }
 
    /**

@@ -8,9 +8,9 @@ package io.github.futures4j;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Stream;
@@ -18,7 +18,7 @@ import java.util.stream.Stream;
 import io.github.futures4j.Futures.Results;
 
 /**
- * Manages a set of {@link CompletableFuture} instances, offering functionality for registration, cancellation,
+ * Manages a set of {@link Future} instances, offering functionality for registration, cancellation,
  * and result retrieval.
  * <p>
  * This class is thread-safe for managing futures and handling cancellations.
@@ -36,13 +36,13 @@ public class FutureManager<T> {
       CANCELLING_WITH_INTERRUPT
    }
 
-   private final Set<CompletableFuture<T>> futures = ConcurrentHashMap.newKeySet();
+   private final Set<Future<T>> futures = ConcurrentHashMap.newKeySet();
    private CancellationMode mode = CancellationMode.NONE;
 
    /**
     * Cancels all registered futures that are not yet complete.
     *
-    * Once this method was invoked further futures added via {@link #register(CompletableFuture)} are cancelled too.
+    * Once this method was invoked further futures added via {@link #register(Future)} are cancelled too.
     *
     * @param mayInterruptIfRunning if {@code true}, ongoing tasks will be interrupted if supported;
     *           otherwise, they will be allowed to complete.
@@ -70,7 +70,7 @@ public class FutureManager<T> {
       return Futures.combine(futures);
    }
 
-   public void deregister(final CompletableFuture<?> future) {
+   public void deregister(final Future<?> future) {
       futures.remove(future);
    }
 
@@ -129,7 +129,7 @@ public class FutureManager<T> {
    /**
     * @return a stream of all registered futures
     */
-   public Stream<CompletableFuture<T>> getFutures() {
+   public Stream<Future<T>> getFutures() {
       return futures.stream();
    }
 
@@ -173,7 +173,7 @@ public class FutureManager<T> {
       return Futures.joinAll(futures, timeout, unit);
    }
 
-   public void register(final CompletableFuture<T> future) {
+   public void register(final Future<T> future) {
       futures.add(future);
 
       synchronized (this) {
