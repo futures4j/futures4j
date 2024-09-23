@@ -71,7 +71,7 @@
 
   <properties>
     <java.version>17</java.version>
-    <doclint>reference,syntax</doclint>
+    <skip.maven.javadoc>false</skip.maven.javadoc>
   </properties>
 
 

@@ -110,7 +110,7 @@ class ExtendedFutureTest extends AbstractFutureTest {
    void testBuilder() {
 
       {
-         final var future = ExtendedFuture.builder().build();
+         final var future = ExtendedFuture.builder(String.class).build();
 
          assertThat(future).isInstanceOf(ExtendedFuture.InterruptibleFuture.class);
          assertThat(future.isInterruptible()).isTrue();
@@ -122,14 +122,15 @@ class ExtendedFutureTest extends AbstractFutureTest {
 
       {
          final Executor customExecutor = Executors.newSingleThreadExecutor();
-         final var wrappedFuture = CompletableFuture.completedFuture("Hello");
+         final CompletableFuture<String> wrappedFuture = CompletableFuture.completedFuture("Hello");
 
-         final var future = ExtendedFuture.builder() //
+         final var future = ExtendedFuture.builder(String.class) //
             .withInterruptible(false) //
             .withInterruptibleStages(false) //
             .withCancellableByDependents(true) //
             .withDefaultExecutor(customExecutor) //
             .withWrapped(wrappedFuture) //
+            .withCompletedValue("Hey") //
             .build();
 
          assertThat(future).isNotInstanceOf(ExtendedFuture.InterruptibleFuture.class);
@@ -272,7 +273,7 @@ class ExtendedFutureTest extends AbstractFutureTest {
    void testWithDefaultExecutor() {
       final var defaultExecutor1 = Executors.newSingleThreadExecutor();
       final var defaultExecutor2 = Executors.newSingleThreadExecutor();
-      final var originalFuture = ExtendedFuture.builder().withDefaultExecutor(defaultExecutor1).build();
+      final var originalFuture = ExtendedFuture.builder(String.class).withDefaultExecutor(defaultExecutor1).build();
       final var sameFuture = originalFuture.withDefaultExecutor(defaultExecutor1);
       final var newFuture = originalFuture.withDefaultExecutor(defaultExecutor2);
 

@@ -24,6 +24,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
+import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.eclipse.jdt.annotation.Nullable;
 
 import io.github.futures4j.util.ThrowingConsumer;
@@ -32,19 +33,22 @@ import io.github.futures4j.util.ThrowingRunnable;
 import io.github.futures4j.util.ThrowingSupplier;
 
 /**
- * An enhanced version of {@link CompletableFuture} that provides additional features:
- * <ol>
- * <li>Supports task thread interruption via <code>cancel(true)</code>, controllable via {@link #asNonInterruptible()} and
- * {@link #withInterruptibleStages(boolean)}</li>
- * <li>Allows dependent stages to cancel preceding stages, controllable via {@link #asCancellableByDependents(boolean)}</li>
- * <li>Enables running tasks that throw checked exceptions, e.g., {@link #runAsync(ThrowingRunnable)}</li>
- * <li>Allows creating a read-only view of a future using {@link #asReadOnly(ReadOnlyMode)}</li>
- * <li>Enables defining a default executor for this future and all subsequent stages, e.g., via {@link #withDefaultExecutor(Executor)} or
- * {@link Builder#withDefaultExecutor(Executor)}</li>
- * <li>Offers additional convenience methods such as {@link #isCompleted()}, {@link #isFailed()}, {@link #getCompletionState()},
- * {@link #getNowOptional()}, {@link #getNowOrFallback(Object)}, {@link #getOptional(long, TimeUnit)}, {@link #getOrFallback(Object)},
- * {@link #getOrFallback(Object, long, TimeUnit)}</li>
- * </ol>
+ * An enhanced version of {@link CompletableFuture} providing additional features:
+ * <ul>
+ * <li><b>Interruptible Tasks:</b> Supports task thread interruption via {@code cancel(true)},
+ * controllable via {@link #asNonInterruptible()} and {@link #withInterruptibleStages(boolean)}.</li>
+ * <li><b>Dependent Stage Cancellation:</b> Allows dependent stages to cancel preceding stages,
+ * controllable via {@link #asCancellableByDependents(boolean)}.</li>
+ * <li><b>Checked Exceptions:</b> Enables running tasks that throw checked exceptions,
+ * e.g., {@link #runAsync(ThrowingRunnable)}.</li>
+ * <li><b>Read-Only Views:</b> Allows creating read-only views of a future using {@link #asReadOnly(ReadOnlyMode)}.</li>
+ * <li><b>Default Executor:</b> Enables defining a default executor for this future and all subsequent stages
+ * via {@link #withDefaultExecutor(Executor)} or {@link Builder#withDefaultExecutor(Executor)}.</li>
+ * <li><b>Convenience Methods:</b> Offers additional methods such as {@link #isCompleted()},
+ * {@link #isFailed()}, {@link #getCompletionState()}, {@link #getNowOptional()},
+ * {@link #getNowOrFallback(Object)}, {@link #getOptional(long, TimeUnit)},
+ * {@link #getOrFallback(Object)}, {@link #getOrFallback(Object, long, TimeUnit)}.</li>
+ * </ul>
  * <p>
  * For more information on issues addressed by this class, see:
  * </p>
@@ -66,9 +70,9 @@ import io.github.futures4j.util.ThrowingSupplier;
 public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    /**
-    * A builder class for creating customized instances of {@link ExtendedFuture}.
+    * A builder for creating customized {@link ExtendedFuture} instances with specified configurations.
     *
-    * @param <V> the result type returned by the future
+    * @param <V> the result type of the future
     */
    public static class Builder<V> {
 
@@ -77,6 +81,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       private boolean interruptibleStages = true;
       private @Nullable Executor defaultExecutor;
       private @Nullable CompletableFuture<V> wrapped;
+      private boolean resultSet = false;
+      private @Nullable V result;
 
       protected Builder() {
       }
@@ -86,13 +92,17 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
        *
        * @return a new {@link ExtendedFuture} instance
        */
+      @SuppressWarnings("null")
       public ExtendedFuture<V> build() {
-         final var wrapped = this.wrapped;
-         if (wrapped == null)
-            return interruptible //
-                  ? new InterruptibleFuture<>(defaultExecutor, cancellableByDependents, interruptibleStages)
-                  : new ExtendedFuture<>(defaultExecutor, cancellableByDependents, interruptibleStages);
-         return new WrappingFuture<>(wrapped, defaultExecutor, cancellableByDependents, interruptibleStages);
+         final ExtendedFuture<V> fut = wrapped == null //
+               ? interruptible //
+                     ? new InterruptibleFuture<>(cancellableByDependents, interruptibleStages, defaultExecutor)
+                     : new ExtendedFuture<>(cancellableByDependents, interruptibleStages, defaultExecutor)
+               : new WrappingFuture<>(wrapped, cancellableByDependents, interruptibleStages, defaultExecutor);
+         if (resultSet) {
+            fut.complete(result);
+         }
+         return fut;
       }
 
       /**
@@ -140,15 +150,26 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       }
 
       /**
+       * Completes the newly constructed future with the given value.
+       *
+       * @param value the value to complete the new future with
+       * @return this {@code Builder} instance for method chaining
+       */
+      public Builder<V> withCompletedValue(final V value) {
+         resultSet = true;
+         result = value;
+         return this;
+      }
+
+      /**
        * Wraps an existing {@link CompletableFuture} with an {@link ExtendedFuture}.
        *
        * @param wrapped the {@link CompletableFuture} to wrap
        * @return this {@code Builder} instance for method chaining
        */
-      @SuppressWarnings("unchecked")
-      public <T extends V> Builder<T> withWrapped(final @Nullable CompletableFuture<T> wrapped) {
-         this.wrapped = (CompletableFuture<V>) wrapped;
-         return (Builder<T>) this;
+      public Builder<V> withWrapped(final @Nullable CompletableFuture<V> wrapped) {
+         this.wrapped = wrapped;
+         return this;
       }
    }
 
@@ -160,9 +181,9 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       private @Nullable Thread executingThread;
       private final Object executingThreadLock = new Object();
 
-      private InterruptibleFuture(final @Nullable Executor defaultExecutor, final boolean cancellableByDependents,
-            final boolean interruptibleStages) {
-         super(defaultExecutor, cancellableByDependents, interruptibleStages);
+      private InterruptibleFuture(final boolean cancellableByDependents, final boolean interruptibleStages,
+            final @Nullable Executor defaultExecutor) {
+         super(cancellableByDependents, interruptibleStages, defaultExecutor);
       }
 
       @Override
@@ -189,9 +210,9 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    static final class InterruptibleWrappingFuture<T> extends WrappingFuture<T> {
 
-      private InterruptibleWrappingFuture(final InterruptibleFuture<T> wrapped, final @Nullable Executor defaultExecutor,
-            final boolean cancellableByDependents, final boolean interruptibleStages) {
-         super(wrapped, defaultExecutor, cancellableByDependents, interruptibleStages);
+      private InterruptibleWrappingFuture(final InterruptibleFuture<T> wrapped, final boolean cancellableByDependents,
+            final boolean interruptibleStages, final @Nullable Executor defaultExecutor) {
+         super(wrapped, cancellableByDependents, interruptibleStages, defaultExecutor);
       }
 
       @Override
@@ -216,9 +237,9 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
       protected final CompletableFuture<T> wrapped;
 
-      private WrappingFuture(final CompletableFuture<T> wrapped, final @Nullable Executor defaultExecutor,
-            final boolean cancellableByDependents, final boolean interruptibleStages) {
-         super(defaultExecutor, cancellableByDependents, interruptibleStages);
+      private WrappingFuture(final CompletableFuture<T> wrapped, final boolean cancellableByDependents, final boolean interruptibleStages,
+            final @Nullable Executor defaultExecutor) {
+         super(cancellableByDependents, interruptibleStages, defaultExecutor);
          this.wrapped = wrapped;
          wrapped.whenComplete((result, ex) -> {
             if (ex == null) {
@@ -333,7 +354,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       }
    }
 
-   private static final Logger LOG = System.getLogger(Futures.class.getName());
+   private static final Logger LOG = System.getLogger(ExtendedFuture.class.getName());
 
    /**
     * Returns a new {@link ExtendedFuture} that is completed when all of the given futures complete.
@@ -363,7 +384,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     * @param <V> the result type of the future
     * @return a new {@link Builder} instance
     */
-   public static <V> Builder<V> builder() {
+   @NonNullByDefault({})
+   public static <V> Builder<V> builder(@SuppressWarnings("unused") final Class<V> targetType) {
       return new Builder<>();
    }
 
@@ -375,7 +397,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     * @return a completed {@link ExtendedFuture}
     */
    public static <V> ExtendedFuture<V> completedFuture(final V value) {
-      final var f = new ExtendedFuture<V>(null, false, true);
+      final var f = new ExtendedFuture<V>(false, true, null);
       f.complete(value);
       return f;
    }
@@ -388,18 +410,18 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     * @return a new incomplete {@link ExtendedFuture}
     */
    public static <V> ExtendedFuture<V> create() {
-      return new ExtendedFuture<>(null, false, true);
+      return new ExtendedFuture<>(false, true, null);
    }
 
    /**
-    * Returns a completed {@link ExtendedFuture} that completed exceptionally with the given exception.
+    * Returns a completed {@link ExtendedFuture} that has completed exceptionally with the given exception.
     *
     * @param ex the exception to complete the future with
     * @param <V> the result type of the future
     * @return a completed {@link ExtendedFuture} that completed exceptionally
     */
    public static <V> ExtendedFuture<V> failedFuture(final Throwable ex) {
-      final var f = new ExtendedFuture<V>(null, false, true);
+      final var f = new ExtendedFuture<V>(false, true, null);
       f.completeExceptionally(ex);
       return f;
    }
@@ -418,7 +440,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    public static <V> ExtendedFuture<V> from(final CompletableFuture<V> source) {
       if (source instanceof final ExtendedFuture<V> cf)
          return cf.asCancellableByDependents(false);
-      return new WrappingFuture<>(source, source.defaultExecutor(), false, true);
+      return new WrappingFuture<>(source, false, true, source.defaultExecutor());
    }
 
    /**
@@ -472,7 +494,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     */
    public static ExtendedFuture<@Nullable Void> runAsyncWithDefaultExecutor(final ThrowingRunnable<?> runnable,
          final Executor defaultExecutor) {
-      final var f = new ExtendedFuture<>(defaultExecutor, false, true);
+      final var f = new ExtendedFuture<>(false, true, defaultExecutor);
       f.complete(null);
       return f.thenRunAsync(runnable);
    }
@@ -533,7 +555,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     */
    public static <V> ExtendedFuture<V> supplyAsyncWithDefaultExecutor(final ThrowingSupplier<V, ?> supplier,
          final Executor defaultExecutor) {
-      final var f = new ExtendedFuture<>(defaultExecutor, false, true);
+      final var f = new ExtendedFuture<>(false, true, defaultExecutor);
       f.complete(null);
       return f.thenApplyAsync(unused -> supplier.get());
    }
@@ -543,8 +565,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    protected final boolean interruptibleStages;
    protected final Executor defaultExecutor;
 
-   protected ExtendedFuture(@Nullable final Executor defaultExecutor, final boolean cancellableByDependents,
-         final boolean interruptibleStages) {
+   protected ExtendedFuture(final boolean cancellableByDependents, final boolean interruptibleStages,
+         final @Nullable Executor defaultExecutor) {
       this.defaultExecutor = defaultExecutor == null ? super.defaultExecutor() : defaultExecutor;
       this.cancellableByDependents = cancellableByDependents;
       cancellablePrecedingStages = new ConcurrentLinkedQueue<>();
@@ -662,7 +684,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    /**
-    * Returns an {@link ExtendedFuture} that shares the result with this future, but allows control over whether
+    * Returns an {@link ExtendedFuture} that shares the result with this future but allows control over whether
     * cancellation of dependent stages cancels this future.
     * <p>
     * If the requested cancellation behavior matches the current one, this instance is returned.
@@ -670,19 +692,18 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     * <p>
     * Any newly created dependent stages will inherit this cancellation behavior.
     *
-    * @param isCancellableByDependents
-    *           If {@code true}, cancellation of a dependent stage will also cancels this future and its underlying future; if
-    *           {@code false}, cancellation of dependent stages will not affect this future.
-    * @return a new {@link ExtendedFuture} the specified cancellation behavior,
-    *         or this instance if the requested behavior remains unchanged.
+    * @param isCancellableByDependents {@code true} if cancellation of a dependent stage should also cancel this future and its preceding
+    *           stages;
+    *           {@code false} if cancellation of dependent stages should not affect this future.
+    * @return a new {@link ExtendedFuture} with the specified cancellation behavior, or this instance if the behavior remains unchanged.
     */
    public ExtendedFuture<T> asCancellableByDependents(final boolean isCancellableByDependents) {
       if (isCancellableByDependents == cancellableByDependents)
          return this;
       return isInterruptible() //
-            ? new InterruptibleWrappingFuture<>((InterruptibleFuture<T>) this, defaultExecutor, isCancellableByDependents,
-               interruptibleStages)
-            : new WrappingFuture<>(this, defaultExecutor, isCancellableByDependents, interruptibleStages);
+            ? new InterruptibleWrappingFuture<>((InterruptibleFuture<T>) this, isCancellableByDependents, interruptibleStages,
+               defaultExecutor)
+            : new WrappingFuture<>(this, isCancellableByDependents, interruptibleStages, defaultExecutor);
    }
 
    /**
@@ -698,26 +719,27 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    public ExtendedFuture<T> asNonInterruptible() {
       if (!isInterruptible())
          return this;
-      return new WrappingFuture<>(this, defaultExecutor, cancellableByDependents, interruptibleStages);
+      return new WrappingFuture<>(this, cancellableByDependents, interruptibleStages, defaultExecutor);
    }
 
    /**
     * Creates a read-only view of this {@link ExtendedFuture}.
     * <p>
-    * The returned future is backed by the this future, allowing only read operations
+    * The returned future is backed by this future, allowing only read operations
     * such as {@link ExtendedFuture#get()}, {@link ExtendedFuture#join()}, and other non-mutating methods.
     * Any attempt to invoke mutating operations such as {@link ExtendedFuture#cancel(boolean)},
     * {@link ExtendedFuture#complete(Object)}, {@link ExtendedFuture#completeExceptionally(Throwable)},
-    * or {@link ExtendedFuture#obtrudeValue(Object)} will result in an {@link UnsupportedOperationException}.
+    * or {@link ExtendedFuture#obtrudeValue(Object)} will result in an {@link UnsupportedOperationException}
+    * or be silently ignored, depending on the specified {@link ReadOnlyMode}.
     *
-    * @param readOnlyMode if {@code true}, mutating operations will throw {@link UnsupportedOperationException};
-    *           if {@code false}, mutation attempts will be silently ignored
-    * @return a read-only {@link CompletableFuture} that is backed by the original future
-    * @throws UnsupportedOperationException if any mutating methods are called
+    * @param readOnlyMode the behavior when a mutating operation is attempted:
+    *           {@link ReadOnlyMode#THROW_ON_MUTATION} to throw {@link UnsupportedOperationException},
+    *           or {@link ReadOnlyMode#IGNORE_MUTATION} to silently ignore mutation attempts.
+    * @return a read-only {@link ExtendedFuture} that is backed by the original future
     */
    public ExtendedFuture<T> asReadOnly(final ReadOnlyMode readOnlyMode) {
       final var throwOnMutationAttempt = readOnlyMode.equals(ReadOnlyMode.THROW_ON_MUTATION);
-      return new WrappingFuture<>(this, defaultExecutor, false, interruptibleStages) {
+      return new WrappingFuture<>(this, false, interruptibleStages, defaultExecutor) {
          @Override
          public boolean cancel(final boolean mayInterruptIfRunning) {
             if (throwOnMutationAttempt)
@@ -806,7 +828,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    /**
     * {@inheritDoc}
     * <p>
-    * If preceding stage has {@link #isCancellableByDependents()} set, the cancellation will also propagate to the preceding stage.
+    * If the preceding stage has {@link #isCancellableByDependents()} set, the cancellation will also propagate to the preceding stage.
     * </p>
     *
     * @param mayInterruptIfRunning {@code true} if the thread executing this task should be
@@ -833,34 +855,72 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       return cancelled;
    }
 
+   /**
+    * Completes this future with the given value if not already completed.
+    *
+    * @param value the value to complete this future with
+    * @return {@code true} if this invocation caused this future to transition to a completed state, otherwise {@code false}
+    */
    @Override
    public boolean complete(final T value) {
       cancellablePrecedingStages.clear();
       return super.complete(value);
    }
 
+   /**
+    * Completes this future with the result of the given supplier function, running it asynchronously using the default executor.
+    *
+    * @param supplier the supplier function to produce the completion value
+    * @return this {@code ExtendedFuture} for method chaining
+    */
    @Override
    public ExtendedFuture<T> completeAsync(final Supplier<? extends T> supplier) {
       super.completeAsync(supplier);
       return this;
    }
 
+   /**
+    * Completes this future with the result of the given supplier function, running it asynchronously using the specified executor.
+    *
+    * @param supplier the supplier function to produce the completion value
+    * @param executor the executor to use for asynchronous execution
+    * @return this {@code ExtendedFuture} for method chaining
+    */
    @Override
    public ExtendedFuture<T> completeAsync(final Supplier<? extends T> supplier, final Executor executor) {
       super.completeAsync(supplier, executor);
       return this;
    }
 
+   /**
+    * Completes this future with the result of the given throwing supplier function, running it asynchronously using the default executor.
+    *
+    * @param supplier the throwing supplier function to produce the completion value
+    * @return this {@code ExtendedFuture} for method chaining
+    */
    public ExtendedFuture<T> completeAsync(final ThrowingSupplier<? extends T, ?> supplier) {
       super.completeAsync(supplier);
       return this;
    }
 
+   /**
+    * Completes this future with the result of the given throwing supplier function, running it asynchronously using the specified executor.
+    *
+    * @param supplier the throwing supplier function to produce the completion value
+    * @param executor the executor to use for asynchronous execution
+    * @return this {@code ExtendedFuture} for method chaining
+    */
    public ExtendedFuture<T> completeAsync(final ThrowingSupplier<? extends T, ?> supplier, final Executor executor) {
       super.completeAsync(supplier, executor);
       return this;
    }
 
+   /**
+    * Completes this future exceptionally with the given exception if not already completed.
+    *
+    * @param ex the exception to complete this future with
+    * @return {@code true} if this invocation caused this future to transition to a completed state, otherwise {@code false}
+    */
    @Override
    public boolean completeExceptionally(final Throwable ex) {
       cancellablePrecedingStages.clear();
@@ -936,6 +996,45 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    public ExtendedFuture<T> exceptionallyComposeAsync(final ThrowingFunction<Throwable, ? extends CompletionStage<T>, ?> fn,
          final Executor executor) {
       return (ExtendedFuture<T>) super.exceptionallyComposeAsync(fn, executor);
+   }
+
+   /**
+    * Propagates the cancellation of this {@link ExtendedFuture} to other {@link Future}s.
+    * <p>
+    * If this {@link ExtendedFuture} is cancelled, all futures in the provided {@code to} collection will be cancelled too.
+    *
+    * @param to the collection of {@link Future} instances that should be cancelled if this future is cancelled
+    * @return this {@code ExtendedFuture} for method chaining
+    */
+   public ExtendedFuture<T> forwardCancellationTo(final @Nullable Collection<? extends @Nullable Future<?>> to) {
+      Futures.forwardCancellation(this, to);
+      return this;
+   }
+
+   /**
+    * Propagates the cancellation of this {@link ExtendedFuture} to another {@link Future}.
+    * <p>
+    * If this {@link ExtendedFuture} is cancelled, the {@code to} future will be cancelled too.
+    *
+    * @param to the {@link Future} instance that should be cancelled if this future is cancelled
+    * @return this {@code ExtendedFuture} for method chaining
+    */
+   public ExtendedFuture<T> forwardCancellation(final @Nullable Future<?> to) {
+      Futures.forwardCancellation(this, to);
+      return this;
+   }
+
+   /**
+    * Propagates the cancellation of this {@link ExtendedFuture} to other {@link Future}s.
+    * <p>
+    * If this {@link ExtendedFuture} is cancelled, all futures in the provided {@code to} array will be cancelled too.
+    *
+    * @param to the array of {@link Future} instances that should be cancelled if this future is cancelled
+    * @return this {@code ExtendedFuture} for method chaining
+    */
+   public ExtendedFuture<T> forwardCancellation(final @NonNullByDefault({}) Future<?> @Nullable... to) {
+      Futures.forwardCancellation(this, to);
+      return this;
    }
 
    public CompletionState getCompletionState() {
@@ -1177,46 +1276,53 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     * If {@code true}, cancellation of a dependent stage will also cancel this future and any preceding stages.
     * If {@code false}, cancellation of dependent stages will not affect this future.
     *
-    * @return {@code true} if this future is cancellable by dependents, {@code false} otherwise.
+    * @return {@code true} if this future is cancellable by dependents, {@code false} otherwise
     */
    public boolean isCancellableByDependents() {
       return cancellableByDependents;
    }
 
    /**
-    * @return true if this future completed normally
+    * Returns {@code true} if this future completed normally.
+    *
+    * @return {@code true} if this future completed normally, {@code false} otherwise
     */
    public boolean isCompleted() {
       return isDone() && !isCancelled() && !isCompletedExceptionally();
    }
 
    /**
-    * Returns {@code true} if this {@link ExtendedFuture} was completed
-    * exceptionally, excluding cancellation.
+    * Returns {@code true} if this {@link ExtendedFuture} was completed exceptionally, excluding cancellation.
     *
-    * @return {@code true} if the future completed exceptionally
-    *         (i.e., failed due to an exception), but not if it was cancelled.
+    * @return {@code true} if the future completed exceptionally but was not cancelled
     */
    public boolean isFailed() {
       return isCompletedExceptionally() && !isCancelled();
    }
 
    /**
-    * @return if this stage is interruptible, i.e. {@code cancel(true)} will result in thread interruption
+    * Returns {@code true} if this future is interruptible, i.e., {@code cancel(true)} will result in thread interruption.
+    *
+    * @return {@code true} if this future is interruptible, {@code false} otherwise
     */
    public boolean isInterruptible() {
       return false;
    }
 
    /**
-    * @return if new stages are interruptible
+    * Returns {@code true} if new stages created from this future are interruptible.
+    *
+    * @return {@code true} if new stages are interruptible, {@code false} otherwise
     */
    public boolean isInterruptibleStages() {
       return interruptibleStages;
    }
 
    /**
-    * @return true if this future cannot be completed programmatically throw e.g. {@link #cancel(boolean)} or {@link #complete(Object)}.
+    * Returns {@code true} if this future cannot be completed programmatically through methods like {@link #cancel(boolean)} or
+    * {@link #complete(Object)}.
+    *
+    * @return {@code true} if this future is read-only, {@code false} otherwise
     */
    public boolean isReadOnly() {
       return false;
@@ -1226,11 +1332,11 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    public <V> ExtendedFuture<V> newIncompleteFuture() {
       final ExtendedFuture<V> newFuture;
       if (interruptibleStages) {
-         final var newInterruptibleFuture = new InterruptibleFuture<V>(defaultExecutor, cancellableByDependents, interruptibleStages);
+         final var newInterruptibleFuture = new InterruptibleFuture<V>(cancellableByDependents, interruptibleStages, defaultExecutor);
          NewIncompleteFutureHolder.store(newInterruptibleFuture);
          newFuture = newInterruptibleFuture;
       } else {
-         newFuture = new ExtendedFuture<>(defaultExecutor, cancellableByDependents, interruptibleStages);
+         newFuture = new ExtendedFuture<>(cancellableByDependents, interruptibleStages, defaultExecutor);
       }
       if (cancellableByDependents && !isDone()) {
          newFuture.cancellablePrecedingStages.add(this);
@@ -1241,7 +1347,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    /**
     * Registers this future with the given {@link Consumer}.
     *
-    * @return this {@code ExtendedFuture} instance for method chaining.
+    * @param target the consumer to register this future with
+    * @return this {@code ExtendedFuture} instance for method chaining
     */
    public ExtendedFuture<T> registerWith(final Consumer<Future<T>> target) {
       target.accept(this);
@@ -1251,7 +1358,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    /**
     * Registers this future with the given {@link FutureManager}.
     *
-    * @return this {@code ExtendedFuture} instance for method chaining.
+    * @param manager the future manager to register this future with
+    * @return this {@code ExtendedFuture} instance for method chaining
     */
    public ExtendedFuture<T> registerWith(final FutureManager<T> manager) {
       manager.register(this);
@@ -1668,9 +1776,9 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          return this;
 
       return isInterruptible() //
-            ? new InterruptibleWrappingFuture<>((InterruptibleFuture<T>) this, defaultExecutor, cancellableByDependents,
-               interruptibleStages)
-            : new WrappingFuture<>(this, defaultExecutor, cancellableByDependents, interruptibleStages);
+            ? new InterruptibleWrappingFuture<>((InterruptibleFuture<T>) this, cancellableByDependents, interruptibleStages,
+               defaultExecutor)
+            : new WrappingFuture<>(this, cancellableByDependents, interruptibleStages, defaultExecutor);
    }
 
    /**
@@ -1681,15 +1789,15 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     *
     * @param interruptibleStages {@code true} if new stages should be interruptible, {@code false} otherwise
     * @return a new {@link ExtendedFuture} with the specified interruptibility behavior for new stages,
-    *         or this instance if the behavior remains unchanged.
+    *         or this instance if the behavior remains unchanged
     */
    public ExtendedFuture<T> withInterruptibleStages(final boolean interruptibleStages) {
       if (interruptibleStages == this.interruptibleStages)
          return this;
 
       return isInterruptible() //
-            ? new InterruptibleWrappingFuture<>((InterruptibleFuture<T>) this, defaultExecutor, cancellableByDependents,
-               interruptibleStages)
-            : new WrappingFuture<>(this, defaultExecutor, cancellableByDependents, interruptibleStages);
+            ? new InterruptibleWrappingFuture<>((InterruptibleFuture<T>) this, cancellableByDependents, interruptibleStages,
+               defaultExecutor)
+            : new WrappingFuture<>(this, cancellableByDependents, interruptibleStages, defaultExecutor);
    }
 }
