@@ -5,12 +5,13 @@
  */
 package io.github.futures4j;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.*;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
@@ -21,6 +22,8 @@ import java.util.concurrent.TimeUnit;
 
 import org.eclipse.jdt.annotation.Nullable;
 import org.junit.jupiter.api.Test;
+
+import net.sf.jstuff.core.concurrent.Threads;
 
 /**
  * @author <a href="https://sebthom.de/">Sebastian Thomschke</a>
@@ -51,24 +54,80 @@ class FuturesTest extends AbstractFutureTest {
    }
 
    @Test
+   @SuppressWarnings("null")
    void testCombine_ToList() throws InterruptedException, ExecutionException {
-      final var fut1 = ExtendedFuture.supplyAsync(() -> List.of("a", "b"));
+      final var fut1 = ExtendedFuture.supplyAsync(() -> {
+         Threads.sleep(100);
+         return List.of("a", "b");
+      });
       final var fut2 = ExtendedFuture.supplyAsync(() -> new TreeSet<>(Set.of("c", "d")));
       final var fut3 = ExtendedFuture.supplyAsync(() -> List.of("e", "f"));
       final var fut4 = ExtendedFuture.supplyAsync(() -> List.of("g", "h"));
+      final var fut5 = ExtendedFuture.failedFuture(new RuntimeException("oh no!"));
 
-      assertThat(Futures.combine(fut1).toList().get()).containsSequence(fut1.get());
-      assertThat(Futures.combine(fut1, fut2).toList().get()).containsSequence(fut1.get(), fut2.get());
-      assertThat(Futures.combine(fut1, fut2, fut3).toList().get()).containsSequence(fut1.get(), fut2.get(), fut3.get());
-      assertThat(Futures.combine(fut1, fut2, fut3, fut4).toList().get()).containsSequence(fut1.get(), fut2.get(), fut3.get(), fut4.get());
+      assertThat(Futures.combine(fut1, fut2).toList().isCompleted()).isFalse();
+      assertThat(Futures.combine(fut1, fut2).toList().isInterruptible()).isFalse();
+      assertThat(Futures.combine(fut1, fut2).toList().isInterruptibleStages()).isTrue();
+      assertThat(Futures.combine(fut1, fut2).toList().isReadOnly()).isFalse();
+
+      assertThat(Futures.combine(fut1).toList().get()).containsExactly(fut1.get());
+      assertThat(Futures.combine(fut1, fut2).toList().get()).containsExactly(fut1.get(), fut2.get());
+      assertThat(Futures.combine(fut1, fut2, fut3).toList().get()).containsExactly(fut1.get(), fut2.get(), fut3.get());
+      assertThat(Futures.combine(fut1, fut2, fut3, fut4).toList().get()).containsExactly(fut1.get(), fut2.get(), fut3.get(), fut4.get());
+      assertThatThrownBy(() -> {
+         Futures.combine(fut1, fut5).toList().get();
+      }).isExactlyInstanceOf(ExecutionException.class) //
+         .hasRootCauseInstanceOf(RuntimeException.class) //
+         .hasRootCauseMessage("oh no!");
+
+      assertThat(Futures.getAll(fut1)).containsExactly(fut1.get());
+      assertThat(Futures.getAll(fut1, fut2)).containsExactly(fut1.get(), fut2.get());
+      assertThat(Futures.getAll(fut1, fut2, fut3)).containsExactly(fut1.get(), fut2.get(), fut3.get());
+      assertThat(Futures.getAll(fut1, fut2, fut3, fut4)).containsExactly(fut1.get(), fut2.get(), fut3.get(), fut4.get());
+      assertThatThrownBy(() -> {
+         Futures.getAll(fut1, fut5);
+      }).isExactlyInstanceOf(ExecutionException.class) //
+         .hasRootCauseInstanceOf(RuntimeException.class) //
+         .hasRootCauseMessage("oh no!");
+   }
+
+   @Test
+   @SuppressWarnings("null")
+   void testCombine_ToMap() throws InterruptedException, ExecutionException {
+      final var fut1 = ExtendedFuture.supplyAsync(() -> {
+         Threads.sleep(100);
+         return List.of("a", "b");
+      });
+      final var fut2 = ExtendedFuture.supplyAsync(() -> Set.of("a", "c"));
+      final var fut3 = ExtendedFuture.supplyAsync(() -> List.of("a", "b"));
+      final var fut4 = ExtendedFuture.supplyAsync(() -> Set.of("a", "e"));
+
+      assertThat(Futures.combine(fut1, fut2).toMap().isCompleted()).isFalse();
+      assertThat(Futures.combine(fut1, fut2).toMap().isInterruptible()).isFalse();
+      assertThat(Futures.combine(fut1, fut2).toMap().isInterruptibleStages()).isTrue();
+      assertThat(Futures.combine(fut1, fut2).toMap().isReadOnly()).isFalse();
+
+      assertThat(Futures.combine(fut1).toMap().get()).isEqualTo(Map.of(fut1, fut1.get()));
+      assertThat(Futures.combine(fut1, fut2).toMap().get()).isEqualTo(Map.of(fut1, fut1.get(), fut2, fut2.get()));
+      assertThat(Futures.combine(fut1, fut2, fut3).toMap().get()).isEqualTo(Map.of(fut1, fut1.get(), fut2, fut2.get(), fut3, fut3.get()));
+      assertThat(Futures.combine(fut1, fut2, fut3, fut4).toMap().get()).isEqualTo(Map.of(fut1, fut1.get(), fut2, fut2.get(), fut3, fut3
+         .get(), fut4, fut4.get()));
    }
 
    @Test
    void testCombine_ToSet() throws InterruptedException, ExecutionException {
-      final var fut1 = ExtendedFuture.supplyAsync(() -> List.of("a", "b"));
+      final var fut1 = ExtendedFuture.supplyAsync(() -> {
+         Threads.sleep(100);
+         return List.of("a", "b");
+      });
       final var fut2 = ExtendedFuture.supplyAsync(() -> Set.of("a", "c"));
       final var fut3 = ExtendedFuture.supplyAsync(() -> List.of("a", "b"));
       final var fut4 = ExtendedFuture.supplyAsync(() -> Set.of("a", "e"));
+
+      assertThat(Futures.combine(fut1, fut2).toSet().isCompleted()).isFalse();
+      assertThat(Futures.combine(fut1, fut2).toSet().isInterruptible()).isFalse();
+      assertThat(Futures.combine(fut1, fut2).toSet().isInterruptibleStages()).isTrue();
+      assertThat(Futures.combine(fut1, fut2).toSet().isReadOnly()).isFalse();
 
       assertThat(Futures.combine(fut1).toSet().get()).containsExactlyInAnyOrder(fut1.get());
       assertThat(Futures.combine(fut1, fut2).toSet().get()).containsExactlyInAnyOrder(fut1.get(), fut2.get());
@@ -78,11 +137,39 @@ class FuturesTest extends AbstractFutureTest {
    }
 
    @Test
+   @SuppressWarnings("null")
+   void testCombine_ToStream() throws InterruptedException, ExecutionException {
+      final var fut1 = ExtendedFuture.supplyAsync(() -> {
+         Threads.sleep(100);
+         return List.of("a", "b");
+      });
+      final var fut2 = ExtendedFuture.supplyAsync(() -> new TreeSet<>(Set.of("c", "d")));
+      final var fut3 = ExtendedFuture.supplyAsync(() -> List.of("e", "f"));
+      final var fut4 = ExtendedFuture.supplyAsync(() -> List.of("g", "h"));
+      final var fut5 = ExtendedFuture.failedFuture(new RuntimeException("oh no!"));
+
+      assertThat(Futures.combine(fut1, fut2).toStream().isCompleted()).isFalse();
+      assertThat(Futures.combine(fut1, fut2).toStream().isInterruptible()).isFalse();
+      assertThat(Futures.combine(fut1, fut2).toStream().isInterruptibleStages()).isTrue();
+      assertThat(Futures.combine(fut1, fut2).toStream().isReadOnly()).isFalse();
+
+      assertThat(Futures.combine(fut1).toStream().get()).containsExactly(fut1.get());
+      assertThat(Futures.combine(fut1, fut2).toStream().get()).containsExactly(fut1.get(), fut2.get());
+      assertThat(Futures.combine(fut1, fut2, fut3).toStream().get()).containsExactly(fut1.get(), fut2.get(), fut3.get());
+      assertThat(Futures.combine(fut1, fut2, fut3, fut4).toStream().get()).containsExactly(fut1.get(), fut2.get(), fut3.get(), fut4.get());
+      assertThatThrownBy(() -> {
+         Futures.combine(fut1, fut5).toStream().get();
+      }).isExactlyInstanceOf(ExecutionException.class) //
+         .hasRootCauseInstanceOf(RuntimeException.class) //
+         .hasRootCauseMessage("oh no!");
+   }
+
+   @Test
    void testCombine_WithCancel() throws InterruptedException {
       final var fut1 = ExtendedFuture.supplyAsync(() -> List.of("a", "b"));
       final var fut2 = ExtendedFuture.supplyAsync(() -> {
          try {
-            Thread.sleep(2000);
+            Thread.sleep(2_000);
          } catch (final InterruptedException ex) {
             throw new RuntimeException(ex);
          }
@@ -90,7 +177,7 @@ class FuturesTest extends AbstractFutureTest {
       });
       final var fut3 = ExtendedFuture.supplyAsync(() -> {
          try {
-            Thread.sleep(2000);
+            Thread.sleep(2_000);
          } catch (final InterruptedException ex) {
             throw new RuntimeException(ex);
          }
@@ -159,7 +246,7 @@ class FuturesTest extends AbstractFutureTest {
       final var fut1 = ExtendedFuture.supplyAsync(() -> List.of("a", "b"));
       final var fut2 = ExtendedFuture.supplyAsync(() -> {
          try {
-            Thread.sleep(2000);
+            Thread.sleep(2_000);
          } catch (final InterruptedException ex) {
             throw new RuntimeException(ex);
          }
@@ -167,7 +254,7 @@ class FuturesTest extends AbstractFutureTest {
       });
       final var fut3 = ExtendedFuture.supplyAsync(() -> {
          try {
-            Thread.sleep(2000);
+            Thread.sleep(2_000);
          } catch (final InterruptedException ex) {
             throw new RuntimeException(ex);
          }

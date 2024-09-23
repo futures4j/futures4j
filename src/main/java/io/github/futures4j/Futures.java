@@ -26,6 +26,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.BiFunction;
 import java.util.stream.Stream;
+import java.util.stream.Stream.Builder;
 import java.util.stream.StreamSupport;
 
 import org.eclipse.jdt.annotation.NonNullByDefault;
@@ -86,6 +87,23 @@ public abstract class Futures {
        * @return an {@link ExtendedFuture} containing a stream of results
        */
       ExtendedFuture<Stream<T>> toStream();
+   }
+
+   public interface CombinerWithToMap<T> extends Combiner<T> {
+      /**
+       * Enables forwarding of cancellation of the combined future to its underlying futures.
+       *
+       * @return this {@code Combiner} instance for method chaining
+       */
+      @Override
+      CombinerWithToMap<T> forwardCancellation();
+
+      /**
+       * Combines the futures into a single future that returns a {@link List} of results.
+       *
+       * @return an {@link ExtendedFuture} containing a list of results
+       */
+      ExtendedFuture<Map<Future<T>, T>> toMap();
    }
 
    /**
@@ -245,13 +263,13 @@ public abstract class Futures {
 
    @SafeVarargs
    @SuppressWarnings("null")
-   public static <T> Combiner<T> combine(final @NonNullByDefault({}) Future<? extends T> @Nullable... futures) {
+   public static <T> CombinerWithToMap<T> combine(final @NonNullByDefault({}) Future<? extends T> @Nullable... futures) {
       if (futures == null || futures.length == 0)
          return combineInternal(List.of());
       return combineInternal(Arrays.asList(futures));
    }
 
-   public static <T> Combiner<T> combine(final @Nullable Iterable<? extends @Nullable Future<? extends T>> futures) {
+   public static <T> CombinerWithToMap<T> combine(final @Nullable Iterable<? extends @Nullable Future<? extends T>> futures) {
       if (futures == null)
          return combineInternal(List.of());
       final var futuresInNewList = futures instanceof final Collection<? extends @Nullable Future<? extends T>> coll //
@@ -295,7 +313,7 @@ public abstract class Futures {
             if (futures.isEmpty())
                return ExtendedFuture.completedFuture(List.of());
 
-            ExtendedFuture<List<T>> combinedFuture = ExtendedFuture.completedFuture(new ArrayList<>());
+            CompletableFuture<List<T>> combinedFuture = CompletableFuture.completedFuture(new ArrayList<>());
 
             for (final var future : futures) {
                if (future != null) {
@@ -307,10 +325,12 @@ public abstract class Futures {
                   });
                }
             }
+
+            final var result = ExtendedFuture.from(combinedFuture);
             if (forwardCancellation) {
-               Futures.forwardCancellation(combinedFuture, futures);
+               result.forwardCancellationTo(futures);
             }
-            return combinedFuture;
+            return result;
          }
 
          @Override
@@ -318,7 +338,7 @@ public abstract class Futures {
             if (futures.isEmpty())
                return ExtendedFuture.completedFuture(Set.of());
 
-            ExtendedFuture<Set<T>> combinedFuture = ExtendedFuture.completedFuture(new HashSet<>());
+            CompletableFuture<Set<T>> combinedFuture = CompletableFuture.completedFuture(new HashSet<>());
 
             for (final var future : futures) {
                if (future != null) {
@@ -330,10 +350,12 @@ public abstract class Futures {
                   });
                }
             }
+
+            final var result = ExtendedFuture.from(combinedFuture);
             if (forwardCancellation) {
-               Futures.forwardCancellation(combinedFuture, futures);
+               result.forwardCancellationTo(futures);
             }
-            return combinedFuture;
+            return result;
          }
 
          @Override
@@ -341,7 +363,7 @@ public abstract class Futures {
             if (futures.isEmpty())
                return ExtendedFuture.completedFuture(Stream.of());
 
-            ExtendedFuture<Stream<T>> combinedFuture = ExtendedFuture.completedFuture(Stream.of());
+            CompletableFuture<Stream<T>> combinedFuture = CompletableFuture.completedFuture(Stream.of());
 
             for (final var future : futures) {
                if (future != null) {
@@ -349,20 +371,22 @@ public abstract class Futures {
                         : Stream.concat(combined, result.stream()));
                }
             }
+
+            final var result = ExtendedFuture.from(combinedFuture);
             if (forwardCancellation) {
-               Futures.forwardCancellation(combinedFuture, futures);
+               result.forwardCancellationTo(futures);
             }
-            return combinedFuture;
+            return result;
          }
       };
    }
 
-   private static <T> Combiner<T> combineInternal(final Collection<? extends @Nullable Future<? extends T>> futures) {
-      return new Combiner<>() {
+   private static <T> CombinerWithToMap<T> combineInternal(final Collection<? extends @Nullable Future<? extends T>> futures) {
+      return new CombinerWithToMap<>() {
          private boolean forwardCancellation = false;
 
          @Override
-         public Combiner<T> forwardCancellation() {
+         public CombinerWithToMap<T> forwardCancellation() {
             forwardCancellation = true;
             return this;
          }
@@ -372,7 +396,7 @@ public abstract class Futures {
             if (futures.isEmpty())
                return ExtendedFuture.completedFuture(List.of());
 
-            ExtendedFuture<List<T>> combinedFuture = ExtendedFuture.completedFuture(new ArrayList<>());
+            CompletableFuture<List<T>> combinedFuture = CompletableFuture.completedFuture(new ArrayList<>());
 
             for (final var future : futures) {
                if (future != null) {
@@ -382,10 +406,38 @@ public abstract class Futures {
                   });
                }
             }
+
+            final var result = ExtendedFuture.from(combinedFuture);
             if (forwardCancellation) {
-               Futures.forwardCancellation(combinedFuture, futures);
+               result.forwardCancellationTo(futures);
             }
-            return combinedFuture;
+            return result;
+         }
+
+         @Override
+         @SuppressWarnings("unchecked")
+         public ExtendedFuture<Map<Future<T>, T>> toMap() {
+            if (futures.isEmpty())
+               return ExtendedFuture.completedFuture(Map.of());
+
+            CompletableFuture<Map<Future<T>, T>> combinedFuture = CompletableFuture.completedFuture(new HashMap<>());
+
+            for (final var future : futures) {
+               if (future != null) {
+                  combinedFuture = combinedFuture.thenCombine(toCompletableFuture(future), (combined, result) -> {
+                     if (result != null) {
+                        combined.put((Future<T>) future, result);
+                     }
+                     return combined;
+                  });
+               }
+            }
+
+            final var result = ExtendedFuture.from(combinedFuture);
+            if (forwardCancellation) {
+               result.forwardCancellationTo(futures);
+            }
+            return result;
          }
 
          @Override
@@ -393,7 +445,7 @@ public abstract class Futures {
             if (futures.isEmpty())
                return ExtendedFuture.completedFuture(Set.of());
 
-            ExtendedFuture<Set<T>> combinedFuture = ExtendedFuture.completedFuture(new HashSet<>());
+            CompletableFuture<Set<T>> combinedFuture = CompletableFuture.completedFuture(new HashSet<>());
 
             for (final var future : futures) {
                if (future != null) {
@@ -403,15 +455,35 @@ public abstract class Futures {
                   });
                }
             }
+
+            final var result = ExtendedFuture.from(combinedFuture);
             if (forwardCancellation) {
-               Futures.forwardCancellation(combinedFuture, futures);
+               result.forwardCancellationTo(futures);
             }
-            return combinedFuture;
+            return result;
          }
 
          @Override
          public ExtendedFuture<Stream<T>> toStream() {
-            return toList().thenApply(List::stream);
+            if (futures.isEmpty())
+               return ExtendedFuture.completedFuture(Stream.of());
+
+            CompletableFuture<Stream.Builder<T>> combinedFuture = CompletableFuture.completedFuture(Stream.builder());
+
+            for (final var future : futures) {
+               if (future != null) {
+                  combinedFuture = combinedFuture.thenCombine(toCompletableFuture(future), (combined, result) -> { //
+                     combined.add(result);
+                     return combined;
+                  });
+               }
+            }
+
+            final var result = ExtendedFuture.from(combinedFuture.thenApply(Builder::build));
+            if (forwardCancellation) {
+               result.forwardCancellationTo(futures);
+            }
+            return result;
          }
       };
    }
@@ -1029,5 +1101,4 @@ public abstract class Futures {
       forwardCancellation(cf, future);
       return cf;
    }
-
 }
