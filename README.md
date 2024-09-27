@@ -12,7 +12,6 @@
 1. [Usage](#usage)
    1. [Binaries](#binaries)
    1. [The `ExtendedFuture` class](#ExtendedFuture)
-   1. [The `FutureManager` class](#FutureManager)
    1. [The `Futures` utility class](#Futures)
    1. [The `CompletionState` enum](#CompletionState)
    1. [Building from Sources](#building)
@@ -94,6 +93,7 @@ serves as a drop-in replacement and enhanced version of Java's
    - https://nurkiewicz.com/2015/03/completablefuture-cant-be-interrupted.html
    - https://blog.tremblay.pro/2017/08/supply-async.html
 
+   With `ExtendedFuture` you can interrupt task execution:
    ```java
    var myFuture = ExtendedFuture.supplyAsync(...);
 
@@ -209,65 +209,6 @@ serves as a drop-in replacement and enhanced version of Java's
    ```
 
 
-### <a name="FutureManager"></a>The `FutureManager` class
-
-The [io.github.futures4j.FutureManager](src/main/java/io/github/futures4j/FutureManager.java "Source code")
-[ 📘 ](https://futures4j.github.io/futures4j/javadoc/io/github/futures4j/FutureManager.html "JavaDoc")
-class allows tracking multiple futures/stages, to e.g. later cancel all at the same time or to retrieve all results.
-
-```java
-final var mgr = new FutureManager<>();
-
-var future1 = new CompletableFuture<>();
-var future2 = new CompletableFuture<>();
-var future3 = new CompletableFuture<>();
-
-mgr.register(future1);
-mgr.register(future2);
-var results = mgr.getAllNow(); // get the results from future1 and future2 if available
-mgr.cancellAll(true); // cancel all currently and later registered incomplete futures
-mgr.register(future3); // will directly cancel future3
-```
-
-Using with `ExtendedFuture#registerWith(FutureManager)` method:
-```java
-final var mgr = new FutureManager<>();
-
-var myFuture = ExtendedFuture.supplyAsync(...)
-       .thenApply(...)    // step 1
-       .registerWith(mgr) // registers previous stage with the FutureManager
-       .thenRun(...)      // step 2
-       .thenCompose(x -> {
-          var innerFuture = ExtendedFuture
-             .runAsync(...)
-             .registerWith(mgr); // registers previous stage with the FutureManager
-          return innerFuture;
-       })
-       .thenAccept(...); // step 3
-
-if (...) {
-   // cancel step 1 and the inner future if not yet complete
-   mgr.cancelAll(true);
-} else {
-   var results = mgr.getAllNow(); // gets the results from step 1 and the innerFuture if available
-}
-```
-
-Other things one can do:
-```java
-final var mgr = new FutureManager<>();
-
-// ... register some futures...
-
-// derive a combined future of all currently registered futures with the FutureManager
-var combinedFuture = mgr.combineAll().toList();
-combinedFuture.thenAccept(results -> /* ... */);
-
-var results = mgr.joinAll(); // wait for all currently registered futures to complete
-results.assertCompletedNormally(); // throws an exception in case some futures were cancelled or failed
-```
-
-
 ### <a name="Futures"></a>The `Futures` utility class
 
 The [io.github.futures4j.Futures](src/main/java/io/github/futures4j/Futures.java "Source code")
@@ -280,8 +221,7 @@ It simplifies handling asynchronous computations by offering functionality to ca
     - Cancel multiple futures
 
         ```java
-        List<Future<?>> futures = List.of(future1, future2, future3);
-        int cancelledCount = Futures.cancelAll(futures);
+        Futures.combine(future1, future2, future3).cancelAll(true);
         ```
 
     - Propagates cancellations from one `CompletableFuture` to others
@@ -337,17 +277,6 @@ It simplifies handling asynchronous computations by offering functionality to ca
        String result = Futures.getOrFallback(future, 1, TimeUnit.SECONDS, "Fallback Result");
        ```
 
-    - Get completed results from multiple futures now
-
-        ```java
-        List<Future<String>> futures = List.of(future1, future2);
-
-        // get a Results object with the results of all normally completed and exceptions of all exceptionally completed futures
-        var results = Futures.getAllNow(futures);
-        results.assertCompletedNormally(); // ensure all futures completed normally
-        results.results(); // returns a map of normally completed Futures and their results
-        results.exceptions(); // returns a map of exceptionally completed/cancelled Futures and their exceptions
-        ```
 
 ### <a name="CompletionState"></a>The `CompletionState` enum
 

@@ -117,6 +117,18 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       }
 
       /**
+       * Completes the newly constructed future with the given value.
+       *
+       * @param value the value to complete the new future with
+       * @return this {@code Builder} instance for method chaining
+       */
+      public Builder<V> withCompletedValue(final V value) {
+         resultSet = true;
+         result = value;
+         return this;
+      }
+
+      /**
        * Sets the default executor for this future and all subsequent stages.
        *
        * @param defaultExecutor the default {@link Executor} to use
@@ -146,18 +158,6 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
        */
       public Builder<V> withInterruptibleStages(final boolean interruptibleStages) {
          this.interruptibleStages = interruptibleStages;
-         return this;
-      }
-
-      /**
-       * Completes the newly constructed future with the given value.
-       *
-       * @param value the value to complete the new future with
-       * @return this {@code Builder} instance for method chaining
-       */
-      public Builder<V> withCompletedValue(final V value) {
-         resultSet = true;
-         result = value;
          return this;
       }
 
@@ -287,6 +287,18 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       @Override
       public boolean completeExceptionally(final Throwable ex) {
          return wrapped.completeExceptionally(ex);
+      }
+
+      @Override
+      public ExtendedFuture<T> completeWith(final CompletableFuture<? extends T> future) {
+         future.whenComplete((result, ex) -> {
+            if (ex == null) {
+               wrapped.complete(result);
+            } else {
+               wrapped.completeExceptionally(ex);
+            }
+         });
+         return this;
       }
    }
 
@@ -565,6 +577,10 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    protected final boolean interruptibleStages;
    protected final Executor defaultExecutor;
 
+   public ExtendedFuture() {
+      this(false, true, null);
+   }
+
    protected ExtendedFuture(final boolean cancellableByDependents, final boolean interruptibleStages,
          final @Nullable Executor defaultExecutor) {
       this.defaultExecutor = defaultExecutor == null ? super.defaultExecutor() : defaultExecutor;
@@ -628,6 +644,28 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
             executor);
       }
       return (ExtendedFuture<@Nullable Void>) super.acceptEitherAsync(other, action, executor);
+   }
+
+   /**
+    * Passes this future to the given {@link Consumer}.
+    *
+    * @param consumer the consumer to which this future is added
+    * @return this {@code ExtendedFuture} instance for method chaining
+    */
+   public ExtendedFuture<T> addTo(final Consumer<Future<T>> consumer) {
+      consumer.accept(this);
+      return this;
+   }
+
+   /**
+    * Adds this future to the given {@link Futures.Combiner}.
+    *
+    * @param combiner the future combiner to which this future is added
+    * @return this {@code ExtendedFuture} instance for method chaining
+    */
+   public ExtendedFuture<T> addTo(final Futures.Combiner<T> combiner) {
+      combiner.add(this);
+      return this;
    }
 
    @Override
@@ -933,6 +971,24 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       return this;
    }
 
+   /**
+    * Completes this {@code ExtendedFuture} when the provided {@code CompletableFuture} finishes,
+    * with either its result or its exception.
+    *
+    * @param future the {@code CompletableFuture} whose completion will trigger this future's completion
+    * @return this {@code ExtendedFuture} for chaining
+    */
+   public ExtendedFuture<T> completeWith(final CompletableFuture<? extends T> future) {
+      future.whenComplete((result, ex) -> {
+         if (ex == null) {
+            complete(result);
+         } else {
+            completeExceptionally(ex);
+         }
+      });
+      return this;
+   }
+
    @Override
    public ExtendedFuture<T> copy() {
       return (ExtendedFuture<T>) super.copy();
@@ -999,19 +1055,6 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    /**
-    * Propagates the cancellation of this {@link ExtendedFuture} to other {@link Future}s.
-    * <p>
-    * If this {@link ExtendedFuture} is cancelled, all futures in the provided {@code to} collection will be cancelled too.
-    *
-    * @param to the collection of {@link Future} instances that should be cancelled if this future is cancelled
-    * @return this {@code ExtendedFuture} for method chaining
-    */
-   public ExtendedFuture<T> forwardCancellationTo(final @Nullable Collection<? extends @Nullable Future<?>> to) {
-      Futures.forwardCancellation(this, to);
-      return this;
-   }
-
-   /**
     * Propagates the cancellation of this {@link ExtendedFuture} to another {@link Future}.
     * <p>
     * If this {@link ExtendedFuture} is cancelled, the {@code to} future will be cancelled too.
@@ -1033,6 +1076,19 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     * @return this {@code ExtendedFuture} for method chaining
     */
    public ExtendedFuture<T> forwardCancellation(final @NonNullByDefault({}) Future<?> @Nullable... to) {
+      Futures.forwardCancellation(this, to);
+      return this;
+   }
+
+   /**
+    * Propagates the cancellation of this {@link ExtendedFuture} to other {@link Future}s.
+    * <p>
+    * If this {@link ExtendedFuture} is cancelled, all futures in the provided {@code to} collection will be cancelled too.
+    *
+    * @param to the collection of {@link Future} instances that should be cancelled if this future is cancelled
+    * @return this {@code ExtendedFuture} for method chaining
+    */
+   public ExtendedFuture<T> forwardCancellationTo(final @Nullable Collection<? extends @Nullable Future<?>> to) {
       Futures.forwardCancellation(this, to);
       return this;
    }
@@ -1288,7 +1344,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     * @return {@code true} if this future completed normally, {@code false} otherwise
     */
    public boolean isCompleted() {
-      return isDone() && !isCancelled() && !isCompletedExceptionally();
+      return CompletionState.of(this) == CompletionState.COMPLETED;
    }
 
    /**
@@ -1297,7 +1353,16 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     * @return {@code true} if the future completed exceptionally but was not cancelled
     */
    public boolean isFailed() {
-      return isCompletedExceptionally() && !isCancelled();
+      return CompletionState.of(this) == CompletionState.FAILED;
+   }
+
+   /**
+    * Returns {@code true} if this future is incomplete.
+    *
+    * @return {@code true} if this future is incomplete, {@code false} otherwise
+    */
+   public boolean isIncomplete() {
+      return CompletionState.of(this) == CompletionState.INCOMPLETE;
    }
 
    /**
@@ -1342,28 +1407,6 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          newFuture.cancellablePrecedingStages.add(this);
       }
       return newFuture;
-   }
-
-   /**
-    * Registers this future with the given {@link Consumer}.
-    *
-    * @param target the consumer to register this future with
-    * @return this {@code ExtendedFuture} instance for method chaining
-    */
-   public ExtendedFuture<T> registerWith(final Consumer<Future<T>> target) {
-      target.accept(this);
-      return this;
-   }
-
-   /**
-    * Registers this future with the given {@link FutureManager}.
-    *
-    * @param manager the future manager to register this future with
-    * @return this {@code ExtendedFuture} instance for method chaining
-    */
-   public ExtendedFuture<T> registerWith(final FutureManager<T> manager) {
-      manager.register(this);
-      return this;
    }
 
    @Override
