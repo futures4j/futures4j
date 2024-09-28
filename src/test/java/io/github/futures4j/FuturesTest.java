@@ -32,9 +32,9 @@ class FuturesTest extends AbstractFutureTest {
 
    @Test
    void testCancel() {
-      final var future1 = ExtendedFuture.create();
-      final var future2 = ExtendedFuture.create();
-      final var future3 = ExtendedFuture.create();
+      final var future1 = new ExtendedFuture<>();
+      final var future2 = new ExtendedFuture<>();
+      final var future3 = new ExtendedFuture<>();
 
       Futures.cancel(future1);
       Futures.cancel(future2, true);
@@ -355,8 +355,8 @@ class FuturesTest extends AbstractFutureTest {
 
    @Test
    void testForwardCancellation() {
-      final var sourceFuture = ExtendedFuture.create();
-      final var targetFuture = ExtendedFuture.create();
+      final var sourceFuture = new ExtendedFuture<>();
+      final var targetFuture = new ExtendedFuture<>();
 
       Futures.forwardCancellation(sourceFuture, targetFuture);
 
@@ -369,10 +369,10 @@ class FuturesTest extends AbstractFutureTest {
 
    @Test
    void testForwardCancellation_Array() {
-      final var sourceFuture = ExtendedFuture.create();
+      final var sourceFuture = new ExtendedFuture<>();
       final var futures = new ArrayList<ExtendedFuture<?>>();
       for (int i = 0; i < 3; i++) {
-         futures.add(ExtendedFuture.create());
+         futures.add(new ExtendedFuture<>());
       }
       Futures.forwardCancellation(sourceFuture, futures.toArray(ExtendedFuture[]::new));
 
@@ -388,10 +388,10 @@ class FuturesTest extends AbstractFutureTest {
 
    @Test
    void testForwardCancellation_List() {
-      final var sourceFuture = ExtendedFuture.create();
+      final var sourceFuture = new ExtendedFuture<>();
       final var futures = new ArrayList<ExtendedFuture<?>>();
       for (int i = 0; i < 3; i++) {
-         futures.add(ExtendedFuture.create());
+         futures.add(new ExtendedFuture<>());
       }
       Futures.forwardCancellation(sourceFuture, futures);
 
@@ -418,7 +418,7 @@ class FuturesTest extends AbstractFutureTest {
       }
       // Test with incomplete future
       {
-         final var future = ExtendedFuture.create();
+         final var future = new ExtendedFuture<>();
 
          final var result = Futures.getOrFallback(future, "Fallback", 100, TimeUnit.MILLISECONDS);
          assertThat(result).isEqualTo("Fallback");
@@ -427,7 +427,7 @@ class FuturesTest extends AbstractFutureTest {
       }
       // Test with cancelled future
       {
-         final var future = ExtendedFuture.create();
+         final var future = new ExtendedFuture<>();
          future.cancel(true);
 
          final var result = Futures.getOrFallback(future, "Fallback", 100, TimeUnit.MILLISECONDS);
@@ -437,7 +437,7 @@ class FuturesTest extends AbstractFutureTest {
       }
       // Test with exceptionally completed future
       {
-         final var future = ExtendedFuture.create();
+         final var future = new ExtendedFuture<>();
          future.completeExceptionally(new RuntimeException());
 
          final var result = Futures.getOrFallback(future, "Fallback", 100, TimeUnit.MILLISECONDS);
@@ -502,7 +502,7 @@ class FuturesTest extends AbstractFutureTest {
       }
       // Test with incomplete future
       {
-         final var future = ExtendedFuture.create();
+         final var future = new ExtendedFuture<>();
 
          final var result = Futures.getNowOrFallback(future, "Fallback");
          assertThat(result).isEqualTo("Fallback");
@@ -511,7 +511,7 @@ class FuturesTest extends AbstractFutureTest {
       }
       // Test with cancelled future
       {
-         final var future = ExtendedFuture.create();
+         final var future = new ExtendedFuture<>();
          future.cancel(true);
 
          final var result = Futures.getNowOrFallback(future, "Fallback");
@@ -521,7 +521,7 @@ class FuturesTest extends AbstractFutureTest {
       }
       // Test with exceptionally completed future
       {
-         final var future = ExtendedFuture.create();
+         final var future = new ExtendedFuture<>();
          future.completeExceptionally(new RuntimeException());
 
          final var result = Futures.getNowOrFallback(future, "Fallback");

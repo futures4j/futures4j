@@ -7,13 +7,18 @@ package io.github.futures4j;
 
 import static io.github.futures4j.AbstractFutureTest.TaskState.INTERRUPTED;
 import static io.github.futures4j.CompletionState.CANCELLED;
+import static net.sf.jstuff.core.validation.NullAnalysisHelper.asNonNull;
 import static org.assertj.core.api.Assertions.*;
 
+import java.io.IOException;
 import java.lang.ref.WeakReference;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.eclipse.jdt.annotation.Nullable;
 import org.junit.jupiter.api.Test;
@@ -27,8 +32,57 @@ import net.sf.jstuff.core.ref.MutableRef;
 class ExtendedFutureTest extends AbstractFutureTest {
 
    @Test
+   void testAcceptEither() {
+      for (final var interruptibleStages : List.of(true, false)) {
+         final MutableRef<@Nullable String> ref = MutableRef.create();
+         final var future1 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
+         final CompletableFuture<String> future2 = CompletableFuture.completedFuture("Result from future2");
+
+         var resultFuture = future1.acceptEither(future2, ref::set);
+         resultFuture.join();
+         assertThat(ref.get()).isEqualTo("Result from future2");
+
+         resultFuture = future1.acceptEitherAsync(future2, ref::set);
+         resultFuture.join();
+         assertThat(ref.get()).isEqualTo("Result from future2");
+
+         future1.complete("Result from future1");
+
+         resultFuture = future1.acceptEither(future2, ref::set);
+         resultFuture.join();
+         assertThat(ref.get()).isEqualTo("Result from future1");
+
+         resultFuture = future1.acceptEitherAsync(future2, ref::set);
+         resultFuture.join();
+         assertThat(ref.get()).isEqualTo("Result from future1");
+      }
+   }
+
+   @Test
+   void testApplyToEither() {
+      for (final var interruptibleStages : List.of(true, false)) {
+         final var future1 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
+         final CompletableFuture<String> future2 = CompletableFuture.completedFuture("Result from future2");
+
+         var resultFuture = future1.applyToEither(future2, result -> "First completed: " + result);
+         assertThat(resultFuture.join()).isEqualTo("First completed: Result from future2");
+
+         resultFuture = future1.applyToEitherAsync(future2, result -> "First completed: " + result);
+         assertThat(resultFuture.join()).isEqualTo("First completed: Result from future2");
+
+         future1.complete("Result from future1");
+
+         resultFuture = future1.applyToEither(future2, result -> "First completed: " + result);
+         assertThat(resultFuture.join()).isEqualTo("First completed: Result from future1");
+
+         resultFuture = future1.applyToEitherAsync(future2, result -> "First completed: " + result);
+         assertThat(resultFuture.join()).isEqualTo("First completed: Result from future1");
+      }
+   }
+
+   @Test
    void testAsReadOnly_withIgnoreMutationAttempt() {
-      final var originalFuture = ExtendedFuture.create();
+      final var originalFuture = new ExtendedFuture<>();
       final var readOnlyFuture = originalFuture.asReadOnly(ReadOnlyMode.IGNORE_MUTATION);
 
       assertThat(readOnlyFuture.complete("Hello")).isFalse();
@@ -43,7 +97,7 @@ class ExtendedFutureTest extends AbstractFutureTest {
    @Test
    @SuppressWarnings("null")
    void testAsReadOnly_withThrowOnMutationAttempt() {
-      final var originalFuture = ExtendedFuture.create();
+      final var originalFuture = new ExtendedFuture<>();
       final var readOnlyFuture = originalFuture.asReadOnly(ReadOnlyMode.THROW_ON_MUTATION);
 
       assertThatThrownBy(() -> readOnlyFuture.complete("Hello")) //
@@ -61,49 +115,6 @@ class ExtendedFutureTest extends AbstractFutureTest {
       // ensure read-only future can still perform non-mutating operations like get() or join()
       originalFuture.complete("Hello");
       assertThat(readOnlyFuture.join()).isEqualTo("Hello");
-   }
-
-   @Test
-   void testCompletedFuture() throws InterruptedException {
-      testCompletedFuture(ExtendedFuture::create, ExtendedFuture::completedFuture);
-      testCompletedFuture(ExtendedFuture::create, value -> ExtendedFuture.from(CompletableFuture.completedFuture(value))
-         .asCancellableByDependents(true));
-
-      testCompletedFuture(() -> ExtendedFuture.from(new CompletableFuture<String>()), value -> ExtendedFuture.from(CompletableFuture
-         .completedFuture(value)));
-
-      assertThat(ExtendedFuture.from(CompletableFuture.completedFuture(null)).isInterruptible()).isFalse();
-      assertThat(ExtendedFuture.from(CompletableFuture.completedFuture(null)).isInterruptibleStages()).isTrue();
-   }
-
-   @Test
-   void testCopy() {
-      testCopy(ExtendedFuture::create);
-   }
-
-   @Test
-   void testGetCompletionState() {
-      final var cancelledFuture = ExtendedFuture.create();
-      cancelledFuture.cancel(true);
-      assertThat(cancelledFuture.getCompletionState()).isEqualTo(CANCELLED);
-
-      final var exceptionallyCompletedFuture = ExtendedFuture.create();
-      exceptionallyCompletedFuture.completeExceptionally(new RuntimeException("Error"));
-      assertThat(exceptionallyCompletedFuture.getCompletionState()).isEqualTo(CompletionState.FAILED);
-
-      final var completedFuture = ExtendedFuture.completedFuture("Success");
-      assertThat(completedFuture.getCompletionState()).isEqualTo(CompletionState.COMPLETED);
-
-      final var incompleteFuture = ExtendedFuture.create();
-      assertThat(incompleteFuture.getCompletionState()).isEqualTo(CompletionState.INCOMPLETE);
-   }
-
-   @Test
-   void testMultipleStagesCancelDownstream() throws InterruptedException {
-      testMultipleStagesCancelDownstream(ExtendedFuture::runAsync, true);
-      testMultipleStagesCancelDownstream(runnable -> ExtendedFuture.from(CompletableFuture.completedFuture(null)) //
-         .asCancellableByDependents(true) //
-         .thenRunAsync(runnable), true);
    }
 
    @Test
@@ -143,8 +154,307 @@ class ExtendedFutureTest extends AbstractFutureTest {
    }
 
    @Test
+   void testCompletedFuture() throws InterruptedException {
+      testCompletedFuture(ExtendedFuture::new, ExtendedFuture::completedFuture);
+      testCompletedFuture(ExtendedFuture::new, value -> ExtendedFuture.from(CompletableFuture.completedFuture(value))
+         .asCancellableByDependents(true));
+
+      testCompletedFuture(() -> ExtendedFuture.from(new CompletableFuture<String>()), value -> ExtendedFuture.from(CompletableFuture
+         .completedFuture(value)));
+
+      assertThat(ExtendedFuture.from(CompletableFuture.completedFuture(null)).isInterruptible()).isFalse();
+      assertThat(ExtendedFuture.from(CompletableFuture.completedFuture(null)).isInterruptibleStages()).isTrue();
+   }
+
+   @Test
+   void testCompleteWith() {
+      final var future1 = new ExtendedFuture<String>();
+      final CompletableFuture<String> future2 = CompletableFuture.completedFuture("Result");
+      future1.completeWith(future2);
+
+      assertThat(future1.join()).isEqualTo("Result");
+   }
+
+   @Test
+   void testCopy() {
+      testCopy(ExtendedFuture::new);
+   }
+
+   @Test
+   void testCustomDefaultExecutor() {
+      final var customExecutor = Executors.newSingleThreadExecutor();
+      final var future = ExtendedFuture.supplyAsyncWithDefaultExecutor(() -> Thread.currentThread().getName(), customExecutor);
+
+      final var threadName = future.join();
+      assertThat(threadName).contains("pool-");
+      customExecutor.shutdown();
+   }
+
+   @Test
+   void testExceptionally() {
+      final var failedFuture = ExtendedFuture.failedFuture(new RuntimeException("Initial failure"));
+
+      var future = failedFuture.exceptionally(ex -> "Recovered from " + ex.getMessage());
+      assertThat(future.join()).isEqualTo("Recovered from Initial failure");
+
+      future = failedFuture.exceptionallyAsync(ex -> "Recovered from " + ex.getMessage());
+      assertThat(future.join()).isEqualTo("Recovered from Initial failure");
+   }
+
+   @Test
+   void testExceptionallyCompose() {
+      final var failedFuture = ExtendedFuture.failedFuture(new RuntimeException("Initial failure"));
+
+      var future = failedFuture.exceptionallyCompose(ex -> CompletableFuture.completedFuture("Recovered from " + ex.getMessage()));
+      assertThat(future.join()).isEqualTo("Recovered from Initial failure");
+
+      future = failedFuture.exceptionallyComposeAsync(ex -> CompletableFuture.completedFuture("Recovered from " + ex.getMessage()));
+      assertThat(future.join()).isEqualTo("Recovered from Initial failure");
+   }
+
+   @Test
+   void testForwardCancellation() {
+      final var future1 = new ExtendedFuture<>();
+      final var future2 = new ExtendedFuture<>();
+      future1.forwardCancellation(future2);
+
+      future1.cancel(true);
+
+      assertThat(future1.isCancelled()).isTrue();
+      assertThat(future2.isCancelled()).isTrue();
+   }
+
+   @Test
+   void testGetCompletionState() {
+      final var cancelledFuture = new ExtendedFuture<>();
+      cancelledFuture.cancel(true);
+      assertThat(cancelledFuture.getCompletionState()).isEqualTo(CANCELLED);
+
+      final var exceptionallyCompletedFuture = new ExtendedFuture<>();
+      exceptionallyCompletedFuture.completeExceptionally(new RuntimeException("Error"));
+      assertThat(exceptionallyCompletedFuture.getCompletionState()).isEqualTo(CompletionState.FAILED);
+
+      final var completedFuture = ExtendedFuture.completedFuture("Success");
+      assertThat(completedFuture.getCompletionState()).isEqualTo(CompletionState.COMPLETED);
+
+      final var incompleteFuture = new ExtendedFuture<>();
+      assertThat(incompleteFuture.getCompletionState()).isEqualTo(CompletionState.INCOMPLETE);
+   }
+
+   @Test
+   void testGetNowOptional() {
+      final var future = new ExtendedFuture<String>();
+
+      var result = future.getNowOptional();
+      assertThat(result).isEmpty();
+
+      future.complete("Completed");
+      result = future.getNowOptional();
+      assertThat(result).contains("Completed");
+
+      final ExtendedFuture<String> failed = ExtendedFuture.failedFuture(new RuntimeException());
+      result = failed.getNowOptional();
+      assertThat(result).isEmpty();
+   }
+
+   @Test
+   void testGetNowOrComputeFallback() {
+      final var future = new ExtendedFuture<String>();
+      var result = future.getNowOrComputeFallback(ex -> "Fallback");
+      assertThat(result).isEqualTo("Fallback");
+
+      result = future.getNowOrComputeFallback((f, ex) -> "Fallback");
+      assertThat(result).isEqualTo("Fallback");
+
+      future.complete("Completed");
+      result = future.getNowOrComputeFallback(ex -> "Fallback");
+      assertThat(result).isEqualTo("Completed");
+      result = future.getNowOrComputeFallback((f, ex) -> "Fallback");
+      assertThat(result).isEqualTo("Completed");
+
+      final ExtendedFuture<String> failed = ExtendedFuture.failedFuture(new RuntimeException());
+      result = failed.getNowOrComputeFallback(ex -> "Fallback");
+      assertThat(result).isEqualTo("Fallback");
+      result = failed.getNowOrComputeFallback((f, ex) -> "Fallback");
+      assertThat(result).isEqualTo("Fallback");
+   }
+
+   @Test
+   void testGetNowOrFallback() {
+      final var future = new ExtendedFuture<String>();
+      var result = future.getNowOrFallback("Fallback");
+      assertThat(result).isEqualTo("Fallback");
+
+      future.complete("Completed");
+      result = future.getNowOrFallback("Fallback");
+      assertThat(result).isEqualTo("Completed");
+
+      final ExtendedFuture<String> failed = ExtendedFuture.failedFuture(new RuntimeException());
+      result = failed.getNowOrFallback("Fallback");
+      assertThat(result).isEqualTo("Fallback");
+   }
+
+   @Test
+   void testGetOptional() {
+      final var future = new ExtendedFuture<String>();
+
+      var result = future.getOptional(10, TimeUnit.MILLISECONDS);
+      assertThat(result).isEmpty();
+
+      future.complete("Completed");
+      result = future.getOptional(10, TimeUnit.MILLISECONDS);
+      assertThat(result).contains("Completed");
+
+      result = future.getOptional();
+      assertThat(result).contains("Completed");
+
+      final ExtendedFuture<String> failed = ExtendedFuture.failedFuture(new RuntimeException());
+
+      result = failed.getOptional(10, TimeUnit.MILLISECONDS);
+      assertThat(result).isEmpty();
+
+      result = failed.getOptional();
+      assertThat(result).isEmpty();
+   }
+
+   @Test
+   void testGetOrComputeFallback() {
+      final var future = new ExtendedFuture<String>();
+      var result = future.getOrComputeFallback(ex -> "Fallback", 10, TimeUnit.MILLISECONDS);
+      assertThat(result).isEqualTo("Fallback");
+
+      result = future.getOrComputeFallback((f, ex) -> "Fallback", 10, TimeUnit.MILLISECONDS);
+      assertThat(result).isEqualTo("Fallback");
+
+      future.complete("Completed");
+      result = future.getOrComputeFallback(ex -> "Fallback", 10, TimeUnit.MILLISECONDS);
+      assertThat(result).isEqualTo("Completed");
+      result = future.getOrComputeFallback((f, ex) -> "Fallback", 10, TimeUnit.MILLISECONDS);
+      assertThat(result).isEqualTo("Completed");
+      result = future.getOrComputeFallback(ex -> "Fallback");
+      assertThat(result).isEqualTo("Completed");
+      result = future.getOrComputeFallback((f, ex) -> "Fallback");
+      assertThat(result).isEqualTo("Completed");
+
+      final ExtendedFuture<String> failed = ExtendedFuture.failedFuture(new RuntimeException());
+      result = failed.getOrComputeFallback(ex -> "Fallback", 10, TimeUnit.MILLISECONDS);
+      assertThat(result).isEqualTo("Fallback");
+      result = failed.getOrComputeFallback((f, ex) -> "Fallback", 10, TimeUnit.MILLISECONDS);
+      assertThat(result).isEqualTo("Fallback");
+      result = failed.getOrComputeFallback(ex -> "Fallback");
+      assertThat(result).isEqualTo("Fallback");
+      result = failed.getOrComputeFallback((f, ex) -> "Fallback");
+      assertThat(result).isEqualTo("Fallback");
+   }
+
+   @Test
+   void testGetOrFallback() {
+      final var future = new ExtendedFuture<String>();
+
+      future.complete("Completed");
+      var result = future.getOrFallback("Fallback");
+      assertThat(result).isEqualTo("Completed");
+
+      final ExtendedFuture<String> failed = ExtendedFuture.failedFuture(new RuntimeException());
+      result = failed.getOrFallback("Fallback");
+      assertThat(result).isEqualTo("Fallback");
+   }
+
+   @Test
+   void testHandle() {
+      final var completedFuture = ExtendedFuture.completedFuture("Initial");
+      final var future = completedFuture.handle((result, ex) -> {
+         if (ex == null)
+            return result + " -> Handled";
+         return "Recovered from exception: " + ex.getMessage();
+      });
+
+      assertThat(future.join()).isEqualTo("Initial -> Handled");
+   }
+
+   @Test
+   void testHandle_withException() {
+      final var failedFuture = ExtendedFuture.failedFuture(new RuntimeException("Initial failure"));
+      final var future = failedFuture.handle((result, ex) -> {
+         if (ex == null)
+            return result + " -> Handled";
+         return "Recovered from exception: " + ex.getMessage();
+      });
+
+      assertThat(future.join()).isEqualTo("Recovered from exception: Initial failure");
+   }
+
+   @Test
+   void testHandlingCheckedExceptions() {
+      final var future = ExtendedFuture.runAsync(() -> {
+         if (true)
+            throw new IOException("Checked exception");
+      }).exceptionally(ex -> {
+         assertThat(ex).isInstanceOf(CompletionException.class);
+         ex = asNonNull(ex.getCause());
+         assertThat(ex).isInstanceOf(RuntimeException.class);
+         ex = asNonNull(ex.getCause());
+         assertThat(ex).isInstanceOf(IOException.class);
+         assertThat(ex).hasMessage("Checked exception");
+         return null;
+      });
+
+      future.join();
+   }
+
+   @Test
+   void testInterruptibility() {
+      final var interruptibleFuture = ExtendedFuture.runAsync(() -> {
+         try {
+            Thread.sleep(1_000);
+         } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+         }
+      });
+      final var nonInterruptibleFuture = ExtendedFuture.runAsync(() -> {
+         try {
+            Thread.sleep(1_000);
+         } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+         }
+      }).asNonInterruptible();
+
+      interruptibleFuture.cancel(true);
+      nonInterruptibleFuture.cancel(true);
+
+      assertThat(interruptibleFuture.isCancelled()).isTrue();
+      assertThat(nonInterruptibleFuture.isCancelled()).isTrue();
+   }
+
+   @Test
+   void testIsFailed() {
+      final var future = new ExtendedFuture<String>();
+      assertThat(future.isFailed()).isFalse();
+
+      future.completeExceptionally(new RuntimeException("Failure"));
+      assertThat(future.isFailed()).isTrue();
+   }
+
+   @Test
+   void testIsIncomplete() {
+      final var future = new ExtendedFuture<String>();
+      assertThat(future.isIncomplete()).isTrue();
+
+      future.complete("Done");
+      assertThat(future.isIncomplete()).isFalse();
+   }
+
+   @Test
+   void testMultipleStagesCancelDownstream() throws InterruptedException {
+      testMultipleStagesCancelDownstream(ExtendedFuture::runAsync, true);
+      testMultipleStagesCancelDownstream(runnable -> ExtendedFuture.from(CompletableFuture.completedFuture(null)) //
+         .asCancellableByDependents(true) //
+         .thenRunAsync(runnable), true);
+   }
+
+   @Test
    void testMultipleStagesCancelUpstream() throws InterruptedException {
-      final var parent = ExtendedFuture.create();
+      final var parent = new ExtendedFuture<>();
       final var parentCancellable = parent.asCancellableByDependents(true);
       final var parentUncancellable = parentCancellable.asCancellableByDependents(false);
       assertThat(parent.isCancellableByDependents()).isFalse();
@@ -270,6 +580,95 @@ class ExtendedFutureTest extends AbstractFutureTest {
    }
 
    @Test
+   void testThenAccept() {
+      final var completedFuture = ExtendedFuture.completedFuture("Initial");
+
+      final MutableRef<@Nullable String> ref = MutableRef.create();
+
+      var future = completedFuture.thenAccept(ref::set);
+      future.join();
+      assertThat(ref.get()).isEqualTo("Initial");
+
+      ref.set(null);
+      future = completedFuture.thenAccept(ref::set);
+      future.join();
+      assertThat(ref.get()).isEqualTo("Initial");
+   }
+
+   @Test
+   @SuppressWarnings("null")
+   void testThenAccept_withException() {
+      final var failedFuture = ExtendedFuture.failedFuture(new RuntimeException("Initial failure"));
+
+      final var isThenAcceptExecuted = new AtomicBoolean(false);
+      final var future = failedFuture.thenAccept(value -> isThenAcceptExecuted.set(true));
+
+      assertThatThrownBy(future::join) //
+         .isInstanceOf(CompletionException.class) //
+         .cause() //
+         .isInstanceOf(RuntimeException.class) //
+         .hasMessage("Initial failure");
+
+      assertThat(isThenAcceptExecuted).isFalse();
+   }
+
+   @Test
+   void testThenApply() {
+      final var completedFuture = ExtendedFuture.completedFuture("Initial");
+
+      var future = completedFuture.thenApply(s -> s + " -> Applied");
+      assertThat(future.join()).isEqualTo("Initial -> Applied");
+
+      future = completedFuture.thenApplyAsync(s -> s + " -> Applied");
+      assertThat(future.join()).isEqualTo("Initial -> Applied");
+   }
+
+   @Test
+   @SuppressWarnings("null")
+   void testThenApply_withException() {
+      final var failedFuture = ExtendedFuture.failedFuture(new RuntimeException("Initial failure"));
+
+      var future = failedFuture.thenApply(s -> s + " -> Applied");
+      assertThatThrownBy(future::join) //
+         .isInstanceOf(CompletionException.class) //
+         .hasCauseInstanceOf(RuntimeException.class) //
+         .hasMessageContaining("Initial failure");
+
+      future = failedFuture.thenApplyAsync(s -> s + " -> Applied");
+      assertThatThrownBy(future::join) //
+         .isInstanceOf(CompletionException.class) //
+         .hasCauseInstanceOf(RuntimeException.class) //
+         .hasMessageContaining("Initial failure");
+   }
+
+   @Test
+   void testThenCompose() {
+      final var completedFuture = ExtendedFuture.completedFuture("Initial");
+
+      var future = completedFuture.thenCompose(result -> CompletableFuture.completedFuture(result + " -> Composed"));
+      assertThat(future.join()).isEqualTo("Initial -> Composed");
+
+      future = completedFuture.thenComposeAsync(result -> CompletableFuture.completedFuture(result + " -> Composed"));
+      assertThat(future.join()).isEqualTo("Initial -> Composed");
+   }
+
+   @Test
+   void testTimeoutCompletion() throws Exception {
+      final var future = new ExtendedFuture<String>().completeOnTimeout("Timeout Result", 100, TimeUnit.MILLISECONDS);
+
+      assertThat(future.get(200, TimeUnit.MILLISECONDS)).isEqualTo("Timeout Result");
+   }
+
+   @Test
+   void testWhenComplete() {
+      final MutableRef<@Nullable String> ref = MutableRef.create();
+      final var future = ExtendedFuture.completedFuture("Hello").whenComplete((result, ex) -> ref.set(result));
+
+      future.join();
+      assertThat(ref.get()).isEqualTo("Hello");
+   }
+
+   @Test
    void testWithDefaultExecutor() {
       final var defaultExecutor1 = Executors.newSingleThreadExecutor();
       final var defaultExecutor2 = Executors.newSingleThreadExecutor();
@@ -279,7 +678,7 @@ class ExtendedFutureTest extends AbstractFutureTest {
 
       assertThat(sameFuture).isSameAs(originalFuture);
       assertThat(newFuture).isNotSameAs(originalFuture);
-      assertThat(newFuture.defaultExecutor()).isSameAs(defaultExecutor2); // Assuming a getter
+      assertThat(newFuture.defaultExecutor()).isSameAs(defaultExecutor2);
 
       defaultExecutor1.shutdown();
       defaultExecutor2.shutdown();

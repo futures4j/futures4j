@@ -24,6 +24,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
@@ -32,14 +33,28 @@ import org.eclipse.jdt.annotation.Nullable;
 
 /**
  * Utility class for working with {@link Future} instances.
+ * <p>
+ * Provides methods and nested classes for combining, flattening, and manipulating multiple futures,
+ * including support for cancellation, aggregation, and transformation of results.
+ * </p>
  *
  * @author <a href="https://sebthom.de/">Sebastian Thomschke</a>
  */
 public abstract class Futures {
 
+   /**
+    * Represents a future that combines multiple futures into a single future.
+    * <p>
+    * The {@code CombinedFuture} allows operations on the collection of combined futures,
+    * such as cancelling all combined futures together.
+    * </p>
+    *
+    * @param <FROM> the type of the results of the combined futures
+    * @param <TO> the type of the result of this combined future
+    */
    public static final class CombinedFuture<FROM, TO> extends ExtendedFuture<TO> {
 
-      protected final Collection<? extends Future<? extends FROM>> combinedFutures;
+      private final Collection<? extends Future<? extends FROM>> combinedFutures;
 
       private CombinedFuture(final Collection<? extends Future<? extends FROM>> combinedFutures) {
          super(false, true, null);
@@ -48,6 +63,10 @@ public abstract class Futures {
 
       /**
        * Cancels this future and all combined futures.
+       *
+       * @param mayInterruptIfRunning {@code true} if the thread executing this task should be interrupted; otherwise, in-progress tasks are
+       *           allowed to complete
+       * @return {@code true} if this task is now cancelled
        */
       public boolean cancelAll(final boolean mayInterruptIfRunning) {
          if (isDone())
@@ -60,21 +79,33 @@ public abstract class Futures {
          return cancelled;
       }
 
+      /**
+       * @return a stream of the combined futures
+       */
       public Stream<? extends Future<? extends FROM>> getCombinedFutures() {
          return combinedFutures.stream();
       }
    }
 
    /**
-    * Combiner for aggregating multiple {@link Future} instances returning type {@code T}.
+    * Builder class for aggregating multiple {@link Future} instances that return type {@code T}.
+    * <p>
+    * The {@code Combiner} allows adding futures and provides methods to combine them into a single future
+    * that aggregates their results in various ways, such as into a list, set, map, or stream.
+    * </p>
     *
-    * @param <T>
-    *           the type of the future results
+    * @param <T> the type of the future results
     */
    public static class Combiner<T> {
 
       private final Set<Future<? extends T>> futures = new LinkedHashSet<>();
 
+      /**
+       * Adds a future to the combiner. Does nothing if the future was already added.
+       *
+       * @param future the future to add
+       * @return this {@code Combiner} instance for method chaining
+       */
       public Combiner<T> add(final @Nullable Future<? extends T> future) {
          if (future != null) {
             futures.add(future);
@@ -83,9 +114,7 @@ public abstract class Futures {
       }
 
       /**
-       * Returns a stream of the futures added to this combiner.
-       *
-       * @return a stream of futures
+       * @return a stream of futures added to this combiner.
        */
       public Stream<Future<? extends T>> getFutures() {
          return futures.stream();
@@ -286,16 +315,25 @@ public abstract class Futures {
    }
 
    /**
-    * Combiner for aggregating multiple {@link Future} instances returning collections of type {@code T},
+    * Builder class for aggregating multiple {@link Future} instances that return collections of type {@code T},
     * and flattening the results into a single collection.
+    * <p>
+    * The {@code FlatteningCombiner} allows adding futures that produce collections (e.g., {@link Iterable}), and provides methods
+    * to combine them into a single future that aggregates and flattens their results into a single collection like a list, set, or stream.
+    * </p>
     *
-    * @param <T>
-    *           the type of the future results
+    * @param <T> the type of the future results
     */
    public static class FlatteningCombiner<T> {
 
       private final Set<Future<? extends @Nullable Iterable<? extends T>>> futures = new LinkedHashSet<>();
 
+      /**
+       * Adds a future to the combiner. Does nothing if the future was already added.
+       *
+       * @param future the future to add
+       * @return this {@code FlatteningCombiner} instance for method chaining
+       */
       public FlatteningCombiner<T> add(final @Nullable Future<? extends @Nullable Iterable<? extends T>> future) {
          if (future != null) {
             futures.add(future);
@@ -304,7 +342,15 @@ public abstract class Futures {
       }
 
       /**
+       * @return a stream of futures added to this combiner.
+       */
+      public Stream<Future<? extends @Nullable Iterable<? extends T>>> getFutures() {
+         return futures.stream();
+      }
+
+      /**
        * Combines the results of the added futures into a single future returning a {@link List} of results.
+       * The collections returned by the futures are flattened into a single list.
        *
        * @return a future containing a list of results from the combined futures
        */
@@ -334,6 +380,7 @@ public abstract class Futures {
 
       /**
        * Combines the results of the added futures into a single future returning a {@link Set} of results.
+       * The collections returned by the futures are flattened into a single set.
        *
        * @return a future containing a set of results from the combined futures
        */
@@ -363,6 +410,7 @@ public abstract class Futures {
 
       /**
        * Combines the results of the added futures into a single future returning a {@link Stream} of results.
+       * The collections returned by the futures are flattened into a single stream.
        *
        * @return a future containing a stream of results from the combined futures
        */
@@ -428,6 +476,13 @@ public abstract class Futures {
       return cancel(futureToCancel, true);
    }
 
+   /**
+    * Creates a new {@link Combiner} and adds the specified futures to it.
+    *
+    * @param futures the futures to combine
+    * @param <T> the type of the future results
+    * @return a new {@code Combiner} containing the specified futures
+    */
    @SafeVarargs
    public static <T> Combiner<T> combine(final @NonNullByDefault({}) Future<? extends T> @Nullable... futures) {
       final var combiner = new Combiner<T>();
@@ -440,6 +495,13 @@ public abstract class Futures {
       return combiner;
    }
 
+   /**
+    * Creates a new {@link Combiner} and adds the specified futures to it.
+    *
+    * @param futures the futures to combine
+    * @param <T> the type of the future results
+    * @return a new {@code Combiner} containing the specified futures
+    */
    public static <T> Combiner<T> combine(final @Nullable Iterable<? extends @Nullable Future<? extends T>> futures) {
       final var combiner = new Combiner<T>();
       if (futures != null) {
@@ -451,6 +513,13 @@ public abstract class Futures {
       return combiner;
    }
 
+   /**
+    * Creates a new {@link FlatteningCombiner} and adds the specified futures to it.
+    *
+    * @param futures the futures to combine
+    * @param <T> the type of the future results
+    * @return a new {@code FlatteningCombiner} containing the specified futures
+    */
    @SafeVarargs
    public static <T> FlatteningCombiner<T> combineFlattened(
          final @NonNullByDefault({}) Future<? extends @Nullable Iterable<T>> @Nullable... futures) {
@@ -464,6 +533,13 @@ public abstract class Futures {
       return combiner;
    }
 
+   /**
+    * Creates a new {@link FlatteningCombiner} and adds the specified futures to it.
+    *
+    * @param futures the futures to combine
+    * @param <T> the type of the future results
+    * @return a new {@code FlatteningCombiner} containing the specified futures
+    */
    public static <T> FlatteningCombiner<T> combineFlattened(
          final @Nullable Iterable<? extends @Nullable Future<? extends @Nullable Iterable<? extends T>>> futures) {
       final var combiner = new FlatteningCombiner<T>();
@@ -480,6 +556,7 @@ public abstract class Futures {
     * Propagates the cancellation of a {@link CompletableFuture} to other {@link Future}s.
     * <p>
     * If the specified {@code from} future is cancelled, all futures in the provided {@code to} collection will be cancelled too.
+    * </p>
     *
     * @param from the {@link CompletableFuture} whose cancellation should be propagated
     * @param to the collection of {@link Future} instances that should be cancelled if {@code from} is cancelled
@@ -506,6 +583,7 @@ public abstract class Futures {
     * Propagates the cancellation of a {@link CompletableFuture} to another {@link Future}.
     * <p>
     * If the specified {@code from} future is cancelled, the {@code to} future will be cancelled too.
+    * </p>
     *
     * @param from the {@link CompletableFuture} whose cancellation should be propagated
     * @param to the {@link Future} instance that should be cancelled if {@code from} is cancelled
@@ -524,6 +602,7 @@ public abstract class Futures {
     * Propagates the cancellation of a {@link CompletableFuture} to other {@link Future}s.
     * <p>
     * If the specified {@code from} future is cancelled, all futures in the provided {@code to} array will be cancelled too.
+    * </p>
     *
     * @param from the {@link CompletableFuture} whose cancellation should be propagated
     * @param to the array of {@link Future} instances that should be cancelled if {@code from} is cancelled
@@ -551,6 +630,7 @@ public abstract class Futures {
     * or an empty {@link Optional} if the future is incomplete, cancelled, or failed.
     *
     * @param future the future to get the result from
+    * @param <T> the type of the future result
     * @return an {@link Optional} containing the result if completed normally, or empty otherwise
     */
    public static <T> Optional<T> getNowOptional(final Future<T> future) {
@@ -565,6 +645,7 @@ public abstract class Futures {
     *
     * @param future the future to get the result from
     * @param fallbackComputer a function to compute the fallback value
+    * @param <T> the type of the future result
     * @return the result if completed normally, or the computed fallback value
     */
    public static <T> T getNowOrComputeFallback(final Future<T> future,
@@ -575,11 +656,27 @@ public abstract class Futures {
    }
 
    /**
+    * Returns the result of the given {@link Future} if it is already completed, or the value computed by
+    * {@code fallbackComputer} if the future is incomplete or failed.
+    *
+    * @param future the future to get the result from
+    * @param fallbackComputer a function to compute the fallback value
+    * @param <T> the type of the future result
+    * @return the result if completed normally, or the computed fallback value
+    */
+   public static <T> T getNowOrComputeFallback(final Future<T> future, final Function<@Nullable Exception, T> fallbackComputer) {
+      if (future.isDone())
+         return getOrComputeFallback(future, fallbackComputer, 0, TimeUnit.SECONDS);
+      return fallbackComputer.apply(null);
+   }
+
+   /**
     * Returns the result of the given {@link Future} if it is already completed, or the specified
     * {@code fallback} if the future is incomplete or failed.
     *
     * @param future the future to get the result from
     * @param fallback the fallback value to return if the future is incomplete or failed
+    * @param <T> the type of the future result
     * @return the result if completed normally, or the fallback value
     */
    public static <T> T getNowOrFallback(final Future<T> future, final T fallback) {
@@ -591,7 +688,9 @@ public abstract class Futures {
    /**
     * Attempts to retrieve the result of the given {@link Future}.
     *
-    * @return an {@link Optional} containing the result of the future if it completes normally, or an empty {@link Optional} otherwise
+    * @param future the future to get the result from
+    * @param <T> the type of the future result
+    * @return an {@link Optional} containing the result if completed normally, or empty otherwise
     */
    public static <T> Optional<T> getOptional(final Future<T> future) {
       try {
@@ -611,6 +710,7 @@ public abstract class Futures {
     * @param future the future to get the result from
     * @param timeout the maximum time to wait
     * @param unit the time unit of the timeout argument
+    * @param <T> the type of the future result
     * @return an {@link Optional} containing the result if completed within the timeout, or empty otherwise
     */
    public static <T> Optional<T> getOptional(final Future<T> future, final long timeout, final TimeUnit unit) {
@@ -635,6 +735,7 @@ public abstract class Futures {
     *
     * @param future the future to get the result from
     * @param fallbackComputer a function to compute the fallback value
+    * @param <T> the type of the future result
     * @return the result if completed normally, or the computed fallback value
     */
    public static <T> T getOrComputeFallback(final Future<T> future, final BiFunction<Future<T>, @Nullable Exception, T> fallbackComputer) {
@@ -658,6 +759,7 @@ public abstract class Futures {
     * @param fallbackComputer a function to compute the fallback value
     * @param timeout the maximum time to wait
     * @param unit the time unit of the timeout argument
+    * @param <T> the type of the future result
     * @return the result if completed within the timeout, or the computed fallback value
     */
    public static <T> T getOrComputeFallback(final Future<T> future, final BiFunction<Future<T>, @Nullable Exception, T> fallbackComputer,
@@ -681,10 +783,63 @@ public abstract class Futures {
 
    /**
     * Waits for the given {@link Future} to complete and returns its result if it completes normally.
+    * If the future is interrupted, cancelled, or failed, the value computed by {@code fallbackComputer} is returned instead.
+    *
+    * @param future the future to get the result from
+    * @param fallbackComputer a function to compute the fallback value
+    * @param <T> the type of the future result
+    * @return the result if completed normally, or the computed fallback value
+    */
+   public static <T> T getOrComputeFallback(final Future<T> future, final Function<@Nullable Exception, T> fallbackComputer) {
+      try {
+         return future.get();
+      } catch (final InterruptedException ex) {
+         Thread.interrupted();
+         LOG.log(Level.DEBUG, ex.getMessage(), ex);
+         return fallbackComputer.apply(ex);
+      } catch (final Exception ex) {
+         LOG.log(Level.DEBUG, ex.getMessage(), ex);
+         return fallbackComputer.apply(ex);
+      }
+   }
+
+   /**
+    * Waits up to the specified timeout for the given {@link Future} to complete and returns its result if it completes normally.
+    * If the future is interrupted, timed out, cancelled, or failed, the value computed by {@code fallbackComputer} is returned instead.
+    *
+    * @param future the future to get the result from
+    * @param fallbackComputer a function to compute the fallback value
+    * @param timeout the maximum time to wait
+    * @param unit the time unit of the timeout argument
+    * @param <T> the type of the future result
+    * @return the result if completed within the timeout, or the computed fallback value
+    */
+   public static <T> T getOrComputeFallback(final Future<T> future, final Function<@Nullable Exception, T> fallbackComputer,
+         final long timeout, final TimeUnit unit) {
+      try {
+         return future.get(timeout, unit);
+      } catch (final TimeoutException ex) {
+         if (LOG.isLoggable(Level.DEBUG)) {
+            LOG.log(Level.DEBUG, "Could not get result within " + timeout + " " + unit.toString().toLowerCase() + "(s)", ex);
+         }
+         return fallbackComputer.apply(ex);
+      } catch (final InterruptedException ex) {
+         Thread.interrupted();
+         LOG.log(Level.DEBUG, ex.getMessage(), ex);
+         return fallbackComputer.apply(ex);
+      } catch (final Exception ex) {
+         LOG.log(Level.DEBUG, ex.getMessage(), ex);
+         return fallbackComputer.apply(ex);
+      }
+   }
+
+   /**
+    * Waits for the given {@link Future} to complete and returns its result if it completes normally.
     * If the future is interrupted, cancelled, or failed, the provided fallback value is returned instead.
     *
     * @param future the future to get the result from
     * @param fallback the fallback value to return if the future completes with an exception
+    * @param <T> the type of the future result
     * @return the result if completed normally, or the fallback value
     */
    public static <T> T getOrFallback(final Future<T> future, final T fallback) {
@@ -707,6 +862,7 @@ public abstract class Futures {
     * @param fallback the fallback value to return if the future completes with an exception
     * @param timeout the maximum time to wait
     * @param unit the time unit of the timeout argument
+    * @param <T> the type of the future result
     * @return the result if completed within the timeout, or the fallback value
     */
    public static <T> T getOrFallback(final Future<T> future, final T fallback, final long timeout, final TimeUnit unit) {
