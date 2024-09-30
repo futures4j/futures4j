@@ -5,6 +5,8 @@
  */
 package io.github.futures4j;
 
+import java.lang.System.Logger;
+import java.lang.System.Logger.Level;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ForkJoinTask;
@@ -44,6 +46,8 @@ public enum CompletionState {
     */
    FAILED;
 
+   private static final Logger LOG = System.getLogger(CompletionState.class.getName());
+
    /**
     * Determines the {@link CompletionState} of the provided {@link Future} based on its current status.
     * <ul>
@@ -78,6 +82,10 @@ public enum CompletionState {
             return CompletionState.COMPLETED;
          } catch (final CancellationException ex) {
             return CompletionState.CANCELLED;
+         } catch (final InterruptedException ex) {
+            LOG.log(Level.DEBUG, ex.getMessage(), ex);
+            Thread.currentThread().interrupt();
+            return CompletionState.FAILED;
          } catch (final Exception ex) {
             return CompletionState.FAILED;
          }
