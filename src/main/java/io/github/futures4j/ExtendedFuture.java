@@ -10,10 +10,12 @@ import java.lang.System.Logger.Level;
 import java.util.Collection;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -1046,6 +1048,33 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    /**
+    * This method emulates the {@link CompletableFuture}'s exceptionNow method introduced in Java 19.
+    *
+    * @throws IllegalStateException if the task has not yet completed, completed normally, or was cancelled
+    */
+   public Throwable exceptionNow() {
+      if (!isDone())
+         throw new IllegalStateException("Future has not yet completed");
+      if (isCancelled())
+         throw new IllegalStateException("Future was cancelled");
+
+      try {
+         get();
+         throw new IllegalStateException("Future completed with a result");
+      } catch (final ExecutionException ex) {
+         var cause = ex.getCause();
+         if (cause instanceof final CompletionException cex) {
+            cause = cex.getCause();
+            return cause == null ? cex : cause;
+         }
+         return cause == null ? ex : cause;
+      } catch (final InterruptedException ex) {
+         Thread.currentThread().interrupt();
+         throw new IllegalStateException("Thread was interrupted", ex);
+      }
+   }
+
+   /**
     * Propagates the cancellation of this {@link ExtendedFuture} to another {@link Future}.
     * <p>
     * If this {@link ExtendedFuture} is cancelled, the {@code to} future will be cancelled too.
@@ -1432,6 +1461,21 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          newFuture.cancellablePrecedingStages.add(this);
       }
       return newFuture;
+   }
+
+   /**
+    * This method emulates the {@link CompletableFuture}'s resultNow method introduced in Java 19.
+    *
+    * @return the computed result
+    * @throws IllegalStateException if the task has not yet completed or failed
+    */
+   public T resultNow() {
+      if (!isDone())
+         throw new IllegalStateException("Future is not completed yet.");
+      if (isCompletedExceptionally())
+         throw new IllegalStateException("Future completed exceptionally");
+
+      return join();
    }
 
    @Override

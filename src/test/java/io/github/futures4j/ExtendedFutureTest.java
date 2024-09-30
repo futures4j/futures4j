@@ -213,6 +213,20 @@ class ExtendedFutureTest extends AbstractFutureTest {
    }
 
    @Test
+   void testExceptionNow() {
+      final var incompleteFuture = new ExtendedFuture<String>();
+      final var completedFuture = ExtendedFuture.completedFuture("Success");
+      final var failedFuture = ExtendedFuture.failedFuture(new IOException());
+      final var cancelledFuture = new ExtendedFuture<String>();
+      cancelledFuture.cancel(true);
+
+      assertThatThrownBy(completedFuture::exceptionNow).isInstanceOf(IllegalStateException.class);
+      assertThatThrownBy(incompleteFuture::exceptionNow).isInstanceOf(IllegalStateException.class);
+      assertThat(failedFuture.exceptionNow()).isInstanceOf(IOException.class);
+      assertThatThrownBy(cancelledFuture::exceptionNow).isInstanceOf(IllegalStateException.class);
+   }
+
+   @Test
    void testForwardCancellation() {
       final var future1 = new ExtendedFuture<>();
       final var future2 = new ExtendedFuture<>();
@@ -578,6 +592,20 @@ class ExtendedFutureTest extends AbstractFutureTest {
 
       assertThat(stage2Ref.get()).isNull();
       assertThat(stage1Ref.get()).isNull();
+   }
+
+   @Test
+   void testResultNow() {
+      final var incompleteFuture = new ExtendedFuture<String>();
+      final var completedFuture = ExtendedFuture.completedFuture("Success");
+      final var failedFuture = ExtendedFuture.failedFuture(new IOException());
+      final var cancelledFuture = new ExtendedFuture<String>();
+      cancelledFuture.cancel(true);
+
+      assertThatThrownBy(incompleteFuture::resultNow).isInstanceOf(IllegalStateException.class);
+      assertThat(completedFuture.resultNow()).isEqualTo("Success");
+      assertThatThrownBy(failedFuture::resultNow).isInstanceOf(IllegalStateException.class);
+      assertThatThrownBy(cancelledFuture::resultNow).isInstanceOf(IllegalStateException.class);
    }
 
    @Test
