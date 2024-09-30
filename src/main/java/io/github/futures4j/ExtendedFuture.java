@@ -46,7 +46,7 @@ import io.github.futures4j.util.ThrowingSupplier;
  * <li><b>Default Executor:</b> Enables defining a default executor for this future and all subsequent stages via
  * {@link #withDefaultExecutor(Executor)} or {@link Builder#withDefaultExecutor(Executor)}.</li>
  * <li><b>Convenience Methods:</b> Offers additional methods such as {@link #isSuccess()}, {@link #isFailed()},
- * {@link #getCompletionState()}, {@link #getNowOptional()}, {@link #getNowOrFallback(Object)}, {@link #getOptional(long, TimeUnit)},
+ * {@link #getNowOptional()}, {@link #getNowOrFallback(Object)}, {@link #getOptional(long, TimeUnit)},
  * {@link #getOrFallback(Object)}, and {@link #getOrFallback(Object, long, TimeUnit)}.</li>
  * </ul>
  *
@@ -1111,10 +1111,6 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    public ExtendedFuture<T> forwardCancellationTo(final @Nullable Collection<? extends @Nullable Future<?>> to) {
       Futures.forwardCancellation(this, to);
       return this;
-   }
-
-   public CompletionState getCompletionState() {
-      return CompletionState.of(this);
    }
 
    /**

@@ -128,7 +128,7 @@ class ExtendedFutureTest extends AbstractFutureTest {
          assertThat(future.isInterruptibleStages()).isTrue();
          assertThat(future.isCancellableByDependents()).isFalse();
          assertThat(future.defaultExecutor()).isNotNull();
-         assertThat(future.getCompletionState()).isEqualTo(CompletionState.INCOMPLETE);
+         assertThat(future.isIncomplete()).isTrue();
       }
 
       {
@@ -239,20 +239,20 @@ class ExtendedFutureTest extends AbstractFutureTest {
    }
 
    @Test
-   void testGetCompletionState() {
+   void testCompletionState() {
       final var cancelledFuture = new ExtendedFuture<>();
       cancelledFuture.cancel(true);
-      assertThat(cancelledFuture.getCompletionState()).isEqualTo(CANCELLED);
+      assertThat(CompletionState.of(cancelledFuture)).isEqualTo(CANCELLED);
 
       final var exceptionallyCompletedFuture = new ExtendedFuture<>();
       exceptionallyCompletedFuture.completeExceptionally(new RuntimeException("Error"));
-      assertThat(exceptionallyCompletedFuture.getCompletionState()).isEqualTo(CompletionState.FAILED);
+      assertThat(CompletionState.of(exceptionallyCompletedFuture)).isEqualTo(CompletionState.FAILED);
 
       final var completedFuture = ExtendedFuture.completedFuture("Success");
-      assertThat(completedFuture.getCompletionState()).isEqualTo(CompletionState.SUCCESS);
+      assertThat(CompletionState.of(completedFuture)).isEqualTo(CompletionState.SUCCESS);
 
       final var incompleteFuture = new ExtendedFuture<>();
-      assertThat(incompleteFuture.getCompletionState()).isEqualTo(CompletionState.INCOMPLETE);
+      assertThat(CompletionState.of(incompleteFuture)).isEqualTo(CompletionState.INCOMPLETE);
    }
 
    @Test

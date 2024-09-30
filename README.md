@@ -295,6 +295,20 @@ switch (CompletionState.of(future)) {
 }
 ```
 
+This is similar to the [Future.State](https://docs.oracle.com/en/java/javase/19/docs/api/java.base/java/util/concurrent/Future.State.html)
+enum introduced in Java 19 which allows switching like so:
+
+```java
+Future<String> future = ...;
+
+switch (future.state()) {
+  case RUNNING   -> /* ... */;
+  case SUCCESS   -> /* ... */;
+  case CANCELLED -> /* ... */;
+  case FAILED    -> /* ... */;
+}
+```
+
 
 ### <a id="building"></a>Building from Sources
 
