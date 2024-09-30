@@ -196,9 +196,9 @@ serves as a drop-in replacement and enhanced version of Java's
    ExtendendFuture myFuture = ...
 
    // returns true if the future completed normally, i.e. with a value
-   myFuture.isCompleted();
+   myFuture.isSuccess();
 
-   // returns an enum describing the current completion state (CANCELLED, COMPLETED, COMPLETED_EXCEPTIONALLY, INCOMPLETE)
+   // returns an enum describing the current completion state (CANCELLED, SUCCESS, FAILED, INCOMPLETE)
    myFuture.getCompletionState();
 
    // returns the completed value or the fallbackValue and **never** throws an exception
@@ -289,7 +289,7 @@ Future<String> future = ...;
 
 switch (CompletionState.of(future)) {
   case INCOMPLETE -> /* ... */;
-  case COMPLETED  -> /* ... */;
+  case SUCCESS    -> /* ... */;
   case CANCELLED  -> /* ... */;
   case FAILED     -> /* ... */;
 }

@@ -65,7 +65,7 @@ class CompletableFutureTest extends AbstractFutureTest {
       awaitFutureState(stage1, CANCELLED);
 
       // nested future is not affected by cancellation of outer chain
-      awaitFutureState(stage1Nested.get(), COMPLETED);
+      awaitFutureState(stage1Nested.get(), SUCCESS);
       awaitTaskState(stage1NestedState, DONE);
    }
 

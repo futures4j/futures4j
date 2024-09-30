@@ -129,12 +129,12 @@ abstract class AbstractFutureTest {
 
       completableFuture = newFutureFactory.get();
       completableFuture.completeOnTimeout("value", 100, TimeUnit.MILLISECONDS);
-      awaitFutureState(completableFuture, CompletionState.COMPLETED);
+      awaitFutureState(completableFuture, CompletionState.SUCCESS);
       testCompletedFuture(completableFuture, "value");
 
       completableFuture = newFutureFactory.get();
       completableFuture.completeAsync(() -> "value");
-      awaitFutureState(completableFuture, CompletionState.COMPLETED);
+      awaitFutureState(completableFuture, CompletionState.SUCCESS);
       testCompletedFuture(completableFuture, "value");
 
       completableFuture = newFutureFactory.get();

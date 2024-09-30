@@ -37,7 +37,7 @@ class CompletionStateTest {
    void testCompletedFuture() {
       final var completedFuture = CompletableFuture.completedFuture("Success");
 
-      assertThat(CompletionState.of(completedFuture)).isEqualTo(CompletionState.COMPLETED);
+      assertThat(CompletionState.of(completedFuture)).isEqualTo(CompletionState.SUCCESS);
    }
 
    @Test

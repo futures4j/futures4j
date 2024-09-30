@@ -164,7 +164,7 @@ public abstract class Futures {
          final var incompleteFutures = new ArrayList<CompletableFuture<T>>();
          for (final var future : futures) {
             final var cf = toCompletableFuture((Future<T>) future);
-            if (CompletionState.of(cf) == CompletionState.COMPLETED) {
+            if (CompletionState.of(cf) == CompletionState.SUCCESS) {
                combinedFuture.complete(cf.join());
                return combinedFuture;
             }

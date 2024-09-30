@@ -92,8 +92,8 @@ class FuturesTest extends AbstractFutureTest {
       });
       final var fut2 = ExtendedFuture.completedFuture(new TreeSet<>(Set.of("c", "d")));
 
-      assertThat(Futures.combine(fut1).toAnyOf().isCompleted()).isFalse();
-      assertThat(Futures.combine(fut1, fut2).toAnyOf().isCompleted()).isTrue();
+      assertThat(Futures.combine(fut1).toAnyOf().isSuccess()).isFalse();
+      assertThat(Futures.combine(fut1, fut2).toAnyOf().isSuccess()).isTrue();
       assertThat(Futures.combine(fut1, fut2).toAnyOf().isInterruptible()).isFalse();
       assertThat(Futures.combine(fut1, fut2).toAnyOf().isInterruptibleStages()).isTrue();
       assertThat(Futures.combine(fut1, fut2).toAnyOf().isReadOnly()).isFalse();
@@ -120,8 +120,8 @@ class FuturesTest extends AbstractFutureTest {
       });
       final var fut2 = ExtendedFuture.completedFuture(new TreeSet<>(Set.of("c", "d")));
 
-      assertThat(Futures.combine(fut1).toAnyOfDeferringExceptions().isCompleted()).isFalse();
-      assertThat(Futures.combine(fut1, fut2).toAnyOfDeferringExceptions().isCompleted()).isTrue();
+      assertThat(Futures.combine(fut1).toAnyOfDeferringExceptions().isSuccess()).isFalse();
+      assertThat(Futures.combine(fut1, fut2).toAnyOfDeferringExceptions().isSuccess()).isTrue();
       assertThat(Futures.combine(fut1, fut2).toAnyOfDeferringExceptions().isInterruptible()).isFalse();
       assertThat(Futures.combine(fut1, fut2).toAnyOfDeferringExceptions().isInterruptibleStages()).isTrue();
       assertThat(Futures.combine(fut1, fut2).toAnyOfDeferringExceptions().isReadOnly()).isFalse();
@@ -146,7 +146,7 @@ class FuturesTest extends AbstractFutureTest {
       final var fut3 = ExtendedFuture.supplyAsync(() -> List.of("e", "f"));
       final var fut4 = ExtendedFuture.supplyAsync(() -> List.of("g", "h"));
 
-      assertThat(Futures.combine(fut1, fut2).toList().isCompleted()).isFalse();
+      assertThat(Futures.combine(fut1, fut2).toList().isSuccess()).isFalse();
       assertThat(Futures.combine(fut1, fut2).toList().isInterruptible()).isFalse();
       assertThat(Futures.combine(fut1, fut2).toList().isInterruptibleStages()).isTrue();
       assertThat(Futures.combine(fut1, fut2).toList().isReadOnly()).isFalse();
@@ -175,7 +175,7 @@ class FuturesTest extends AbstractFutureTest {
       final var fut3 = ExtendedFuture.supplyAsync(() -> List.of("a", "b"));
       final var fut4 = ExtendedFuture.supplyAsync(() -> Set.of("a", "e"));
 
-      assertThat(Futures.combine(fut1, fut2).toMap().isCompleted()).isFalse();
+      assertThat(Futures.combine(fut1, fut2).toMap().isSuccess()).isFalse();
       assertThat(Futures.combine(fut1, fut2).toMap().isInterruptible()).isFalse();
       assertThat(Futures.combine(fut1, fut2).toMap().isInterruptibleStages()).isTrue();
       assertThat(Futures.combine(fut1, fut2).toMap().isReadOnly()).isFalse();
@@ -205,7 +205,7 @@ class FuturesTest extends AbstractFutureTest {
       final var fut3 = ExtendedFuture.supplyAsync(() -> List.of("a", "b"));
       final var fut4 = ExtendedFuture.supplyAsync(() -> Set.of("a", "e"));
 
-      assertThat(Futures.combine(fut1, fut2).toSet().isCompleted()).isFalse();
+      assertThat(Futures.combine(fut1, fut2).toSet().isSuccess()).isFalse();
       assertThat(Futures.combine(fut1, fut2).toSet().isInterruptible()).isFalse();
       assertThat(Futures.combine(fut1, fut2).toSet().isInterruptibleStages()).isTrue();
       assertThat(Futures.combine(fut1, fut2).toSet().isReadOnly()).isFalse();
@@ -236,7 +236,7 @@ class FuturesTest extends AbstractFutureTest {
       final var fut4 = ExtendedFuture.supplyAsync(() -> List.of("g", "h"));
       final var fut5 = ExtendedFuture.failedFuture(new RuntimeException("oh no!"));
 
-      assertThat(Futures.combine(fut1, fut2).toStream().isCompleted()).isFalse();
+      assertThat(Futures.combine(fut1, fut2).toStream().isSuccess()).isFalse();
       assertThat(Futures.combine(fut1, fut2).toStream().isInterruptible()).isFalse();
       assertThat(Futures.combine(fut1, fut2).toStream().isInterruptibleStages()).isTrue();
       assertThat(Futures.combine(fut1, fut2).toStream().isReadOnly()).isFalse();

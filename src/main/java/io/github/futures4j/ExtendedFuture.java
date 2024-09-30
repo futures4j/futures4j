@@ -43,7 +43,7 @@ import io.github.futures4j.util.ThrowingSupplier;
  * <li><b>Read-Only Views:</b> Allows creating read-only views of a future using {@link #asReadOnly(ReadOnlyMode)}.</li>
  * <li><b>Default Executor:</b> Enables defining a default executor for this future and all subsequent stages via
  * {@link #withDefaultExecutor(Executor)} or {@link Builder#withDefaultExecutor(Executor)}.</li>
- * <li><b>Convenience Methods:</b> Offers additional methods such as {@link #isCompleted()}, {@link #isFailed()},
+ * <li><b>Convenience Methods:</b> Offers additional methods such as {@link #isSuccess()}, {@link #isFailed()},
  * {@link #getCompletionState()}, {@link #getNowOptional()}, {@link #getNowOrFallback(Object)}, {@link #getOptional(long, TimeUnit)},
  * {@link #getOrFallback(Object)}, and {@link #getOrFallback(Object, long, TimeUnit)}.</li>
  * </ul>
@@ -563,7 +563,6 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    protected final boolean cancellableByDependents;
    protected final boolean interruptibleStages;
    protected final Executor defaultExecutor;
-   protected volatile String description = "";
 
    /**
     * Creates a new {@code ExtendedFuture} with default settings.
@@ -1365,15 +1364,6 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    /**
-    * Returns {@code true} if this future completed normally.
-    *
-    * @return {@code true} if this future completed normally, {@code false} otherwise
-    */
-   public boolean isCompleted() {
-      return CompletionState.of(this) == CompletionState.COMPLETED;
-   }
-
-   /**
     * Returns {@code true} if this {@link ExtendedFuture} was completed exceptionally, excluding cancellation.
     *
     * @return {@code true} if the future completed exceptionally but was not cancelled
@@ -1417,6 +1407,15 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     */
    public boolean isReadOnly() {
       return false;
+   }
+
+   /**
+    * Returns {@code true} if this future completed normally.
+    *
+    * @return {@code true} if this future completed normally, {@code false} otherwise
+    */
+   public boolean isSuccess() {
+      return CompletionState.of(this) == CompletionState.SUCCESS;
    }
 
    @Override
@@ -1794,16 +1793,6 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    @Override
-   public String toString() {
-      return ExtendedFuture.class.getSimpleName() + "@" + Integer.toHexString(hashCode()) + "[" + switch (CompletionState.of(this)) {
-         case INCOMPLETE -> "incomplete, " + getNumberOfDependents() + " dependent(s)";
-         case CANCELLED -> "cancelled";
-         case COMPLETED -> "completed";
-         case FAILED -> "failed";
-      } + (description.isEmpty() ? "" : ", \"" + description + "\"") + "]";
-   }
-
-   @Override
    public ExtendedFuture<T> whenComplete(final BiConsumer<? super @Nullable T, ? super @Nullable Throwable> action) {
       if (interruptibleStages) {
          final var fId = NewIncompleteFutureHolder.generateFutureId();
@@ -1847,24 +1836,6 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
             ? new InterruptibleWrappingFuture<>((InterruptibleFuture<T>) this, cancellableByDependents, interruptibleStages,
                defaultExecutor)
             : new WrappingFuture<>(this, cancellableByDependents, interruptibleStages, defaultExecutor);
-   }
-
-   /**
-    * Returns an {@link ExtendedFuture} that shares the result with this future but with a new description.
-    *
-    * @param description the new description for this future
-    * @return a new {@link ExtendedFuture} with the specified description, or {@code this} if the description is unchanged
-    */
-   public ExtendedFuture<T> withDescription(final String description) {
-      if (this.description.equals(description))
-         return this;
-
-      final var future = isInterruptible() //
-            ? new InterruptibleWrappingFuture<>((InterruptibleFuture<T>) this, cancellableByDependents, interruptibleStages,
-               defaultExecutor)
-            : new WrappingFuture<>(this, cancellableByDependents, interruptibleStages, defaultExecutor);
-      future.description = description;
-      return future;
    }
 
    /**
