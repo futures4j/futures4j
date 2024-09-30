@@ -351,12 +351,21 @@ class ExtendedFutureTest extends AbstractFutureTest {
    void testGetOrFallback() {
       final var future = new ExtendedFuture<String>();
 
+      var result = future.getOrFallback("Fallback", 10, TimeUnit.MILLISECONDS);
+      assertThat(result).isEqualTo("Fallback");
+
       future.complete("Completed");
-      var result = future.getOrFallback("Fallback");
+      result = future.getOrFallback("Fallback");
+      assertThat(result).isEqualTo("Completed");
+
+      result = future.getOrFallback("Fallback", 10, TimeUnit.MILLISECONDS);
       assertThat(result).isEqualTo("Completed");
 
       final ExtendedFuture<String> failed = ExtendedFuture.failedFuture(new RuntimeException());
       result = failed.getOrFallback("Fallback");
+      assertThat(result).isEqualTo("Fallback");
+
+      result = failed.getOrFallback("Fallback", 10, TimeUnit.MILLISECONDS);
       assertThat(result).isEqualTo("Fallback");
    }
 
@@ -572,6 +581,49 @@ class ExtendedFutureTest extends AbstractFutureTest {
    }
 
    @Test
+   void testRunAfterBoth() {
+      for (final var interruptibleStages : List.of(true, false)) {
+         final MutableRef<@Nullable String> ref1 = MutableRef.create();
+         final MutableRef<@Nullable String> ref2 = MutableRef.create();
+
+         final var future1 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
+         final var future2 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
+
+         final var resultFuture = future1.runAfterBoth(future2, () -> ref1.set("Both completed"));
+         final var asyncResultFuture = future2.runAfterBothAsync(future1, () -> ref2.set("Both completed async"));
+
+         future1.complete("Complete 1");
+         future2.complete("Complete 2");
+
+         resultFuture.join();
+         assertThat(ref1.get()).isEqualTo("Both completed");
+
+         asyncResultFuture.join();
+         assertThat(ref2.get()).isEqualTo("Both completed async");
+      }
+   }
+
+   @Test
+   void testRunAfterEither() {
+      for (final var interruptibleStages : List.of(true, false)) {
+         final MutableRef<@Nullable String> ref1 = MutableRef.create();
+         final MutableRef<@Nullable String> ref2 = MutableRef.create();
+
+         final var future1 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
+         final var future2 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
+         final var resultFuture = future1.runAfterEither(future2, () -> ref1.set("Either completed"));
+         final var asyncResultFuture = future2.runAfterEitherAsync(future1, () -> ref2.set("Either completed async"));
+
+         future1.complete("Completed 1");
+         resultFuture.join();
+         assertThat(ref1.get()).isEqualTo("Either completed");
+
+         asyncResultFuture.join();
+         assertThat(ref2.get()).isEqualTo("Either completed async");
+      }
+   }
+
+   @Test
    void testSingleStageCancel() throws InterruptedException {
       testSingleStageCancel(ExtendedFuture::runAsync, true);
       testSingleStageCancel(runnable -> ExtendedFuture.from(CompletableFuture.completedFuture(null)) //
@@ -590,7 +642,17 @@ class ExtendedFutureTest extends AbstractFutureTest {
       assertThat(ref.get()).isEqualTo("Initial");
 
       ref.set(null);
+      future = completedFuture.thenAcceptAsync(ref::set);
+      future.join();
+      assertThat(ref.get()).isEqualTo("Initial");
+
+      ref.set(null);
       future = completedFuture.thenAccept(ref::set);
+      future.join();
+      assertThat(ref.get()).isEqualTo("Initial");
+
+      ref.set(null);
+      future = completedFuture.thenAcceptAsync(ref::set);
       future.join();
       assertThat(ref.get()).isEqualTo("Initial");
    }
@@ -610,6 +672,27 @@ class ExtendedFutureTest extends AbstractFutureTest {
          .hasMessage("Initial failure");
 
       assertThat(isThenAcceptExecuted).isFalse();
+   }
+
+   @Test
+   void testThenAcceptBoth() {
+      for (final var interruptibleStages : List.of(true, false)) {
+         final MutableRef<@Nullable String> ref = MutableRef.create();
+         final var future1 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
+         final var future2 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
+
+         final var resultFuture = future1.thenAcceptBoth(future2, (res1, res2) -> ref.set(res1 + " and " + res2));
+         final var asyncResultFuture = future1.thenAcceptBothAsync(future2, (res1, res2) -> ref.set(res1 + " and " + res2));
+
+         future1.complete("First");
+         future2.complete("Second");
+
+         resultFuture.join();
+         assertThat(ref.get()).isEqualTo("First and Second");
+
+         asyncResultFuture.join();
+         assertThat(ref.get()).isEqualTo("First and Second");
+      }
    }
 
    @Test
@@ -642,6 +725,22 @@ class ExtendedFutureTest extends AbstractFutureTest {
    }
 
    @Test
+   void testThenCombine() {
+      for (final var interruptibleStages : List.of(true, false)) {
+         final var future1 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
+         final var future2 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
+
+         final var resultFuture = future1.thenCombine(future2, (res1, res2) -> res1 + " combined with " + res2);
+         final var resultFutureAsync = future1.thenCombineAsync(future2, (res1, res2) -> res1 + " async combined with " + res2);
+         future1.complete("First");
+         future2.complete("Second");
+
+         assertThat(resultFuture.join()).isEqualTo("First combined with Second");
+         assertThat(resultFutureAsync.join()).isEqualTo("First async combined with Second");
+      }
+   }
+
+   @Test
    void testThenCompose() {
       final var completedFuture = ExtendedFuture.completedFuture("Initial");
 
@@ -653,6 +752,32 @@ class ExtendedFutureTest extends AbstractFutureTest {
    }
 
    @Test
+   void testThenRun() {
+      final var completedFuture = ExtendedFuture.completedFuture("Initial");
+
+      final MutableRef<@Nullable String> ref = MutableRef.create();
+
+      var future = completedFuture.thenRun(() -> ref.set("Run"));
+      future.join();
+      assertThat(ref.get()).isEqualTo("Run");
+
+      ref.set(null);
+      future = completedFuture.thenRunAsync(() -> ref.set("Run"));
+      future.join();
+      assertThat(ref.get()).isEqualTo("Run");
+
+      ref.set(null);
+      future = completedFuture.thenRun(() -> ref.set("Run"));
+      future.join();
+      assertThat(ref.get()).isEqualTo("Run");
+
+      ref.set(null);
+      future = completedFuture.thenRunAsync(() -> ref.set("Run"));
+      future.join();
+      assertThat(ref.get()).isEqualTo("Run");
+   }
+
+   @Test
    void testTimeoutCompletion() throws Exception {
       final var future = new ExtendedFuture<String>().completeOnTimeout("Timeout Result", 100, TimeUnit.MILLISECONDS);
 
@@ -661,11 +786,17 @@ class ExtendedFutureTest extends AbstractFutureTest {
 
    @Test
    void testWhenComplete() {
-      final MutableRef<@Nullable String> ref = MutableRef.create();
-      final var future = ExtendedFuture.completedFuture("Hello").whenComplete((result, ex) -> ref.set(result));
+      final var completedFuture = ExtendedFuture.completedFuture("Initial");
 
+      final MutableRef<@Nullable String> ref = MutableRef.create();
+      var future = completedFuture.whenComplete((result, ex) -> ref.set(result));
       future.join();
-      assertThat(ref.get()).isEqualTo("Hello");
+      assertThat(ref.get()).isEqualTo("Initial");
+
+      ref.set("");
+      future = completedFuture.whenCompleteAsync((result, ex) -> ref.set(result));
+      future.join();
+      assertThat(ref.get()).isEqualTo("Initial");
    }
 
    @Test
