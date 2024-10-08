@@ -57,6 +57,9 @@ fi
 if [[ -n ${ACT:-} ]]; then
   MAVEN_CLI_OPTS+=" -Dformatter.validate.lineending=KEEP"
 fi
+if [[ ${MAY_CREATE_RELEASE:-false} == "true" && ${GITHUB_ACTIONS:-} == "true" ]]; then
+  MAVEN_CLI_OPTS+=" -Dskip.maven.javadoc=false"
+fi
 echo "  -> MAVEN_CLI_OPTS: $MAVEN_CLI_OPTS"
 
 
