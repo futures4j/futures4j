@@ -81,6 +81,16 @@ chmod u+x ./mvnw
 
 
 #
+# set github author for commits during release and site builds
+#
+if [[ ${MAY_CREATE_RELEASE:-false} == "true" && ${GITHUB_ACTIONS:-} == "true" ]]; then
+  # https://github.community/t/github-actions-bot-email-address/17204
+  git config --global user.name "github-actions[bot]"
+  git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+fi
+
+
+#
 # determine if this is a release build
 #
 if [[ ${projectVersion:-foo} == ${POM_CURRENT_VERSION:-bar} && ${MAY_CREATE_RELEASE:-false} == "true" ]]; then
@@ -145,9 +155,6 @@ if [[ ${MAY_CREATE_RELEASE:-false} == "true" ]]; then
         if curl --output /dev/null --silent --head --fail "$github_repo_url/tree/$branch"; then
           git clone "$github_repo_url" --single-branch --branch $branch $branch
           pushd $branch >/dev/null
-          # https://github.community/t/github-actions-bot-email-address/17204
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if [[ "${revert_last_commit:-false}" == "true" ]]; then
             git reset --hard HEAD^ # revert previous commit
           fi
@@ -158,9 +165,6 @@ if [[ ${MAY_CREATE_RELEASE:-false} == "true" ]]; then
           git rm -rf .
           touch .gitkeep
           git add .gitkeep
-          # https://github.community/t/github-actions-bot-email-address/17204
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "Initial commit"
         fi
         popd >/dev/null

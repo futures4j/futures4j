@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: © Sebastian Thomschke
 # SPDX-FileContributor: Sebastian Thomschke: initial configuration
 # SPDX-License-Identifier: EPL-2.0
-
+#
 # https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions
 name: Build
 
