@@ -696,7 +696,7 @@ public abstract class Futures {
       try {
          return Optional.ofNullable(future.get());
       } catch (final InterruptedException ex) {
-         Thread.interrupted();
+         Thread.currentThread().interrupt();
          LOG.log(Level.DEBUG, ex.getMessage(), ex);
       } catch (final Exception ex) {
          LOG.log(Level.DEBUG, ex.getMessage(), ex);
@@ -721,7 +721,7 @@ public abstract class Futures {
             LOG.log(Level.DEBUG, "Could not get result within " + timeout + " " + unit.toString().toLowerCase() + "(s)", ex);
          }
       } catch (final InterruptedException ex) {
-         Thread.interrupted();
+         Thread.currentThread().interrupt();
          LOG.log(Level.DEBUG, ex.getMessage(), ex);
       } catch (final Exception ex) {
          LOG.log(Level.DEBUG, ex.getMessage(), ex);
@@ -742,7 +742,7 @@ public abstract class Futures {
       try {
          return future.get();
       } catch (final InterruptedException ex) {
-         Thread.interrupted();
+         Thread.currentThread().interrupt();
          LOG.log(Level.DEBUG, ex.getMessage(), ex);
          return fallbackComputer.apply(future, ex);
       } catch (final Exception ex) {
@@ -772,7 +772,7 @@ public abstract class Futures {
          }
          return fallbackComputer.apply(future, ex);
       } catch (final InterruptedException ex) {
-         Thread.interrupted();
+         Thread.currentThread().interrupt();
          LOG.log(Level.DEBUG, ex.getMessage(), ex);
          return fallbackComputer.apply(future, ex);
       } catch (final Exception ex) {
@@ -794,7 +794,7 @@ public abstract class Futures {
       try {
          return future.get();
       } catch (final InterruptedException ex) {
-         Thread.interrupted();
+         Thread.currentThread().interrupt();
          LOG.log(Level.DEBUG, ex.getMessage(), ex);
          return fallbackComputer.apply(ex);
       } catch (final Exception ex) {
@@ -824,7 +824,7 @@ public abstract class Futures {
          }
          return fallbackComputer.apply(ex);
       } catch (final InterruptedException ex) {
-         Thread.interrupted();
+         Thread.currentThread().interrupt();
          LOG.log(Level.DEBUG, ex.getMessage(), ex);
          return fallbackComputer.apply(ex);
       } catch (final Exception ex) {
@@ -846,7 +846,7 @@ public abstract class Futures {
       try {
          return future.get();
       } catch (final InterruptedException ex) {
-         Thread.interrupted();
+         Thread.currentThread().interrupt();
          LOG.log(Level.DEBUG, ex.getMessage(), ex);
       } catch (final Exception ex) {
          LOG.log(Level.DEBUG, ex.getMessage(), ex);
@@ -873,7 +873,7 @@ public abstract class Futures {
             LOG.log(Level.DEBUG, "Could not get result within " + timeout + " " + unit.toString().toLowerCase() + "(s)", ex);
          }
       } catch (final InterruptedException ex) {
-         Thread.interrupted();
+         Thread.currentThread().interrupt();
          LOG.log(Level.DEBUG, ex.getMessage(), ex);
       } catch (final Exception ex) {
          LOG.log(Level.DEBUG, ex.getMessage(), ex);
