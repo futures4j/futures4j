@@ -40,7 +40,7 @@ import org.eclipse.jdt.annotation.Nullable;
  *
  * @author <a href="https://sebthom.de/">Sebastian Thomschke</a>
  */
-public abstract class Futures {
+public final class Futures {
 
    /**
     * Represents a future that combines multiple futures into a single future.
@@ -82,8 +82,9 @@ public abstract class Futures {
       /**
        * @return a stream of the combined futures
        */
-      public Stream<? extends Future<? extends FROM>> getCombinedFutures() {
-         return combinedFutures.stream();
+      @SuppressWarnings("unchecked")
+      public Stream<Future<FROM>> getCombinedFutures() {
+         return (Stream<Future<FROM>>) (Stream<?>) combinedFutures.stream();
       }
    }
 
@@ -116,8 +117,9 @@ public abstract class Futures {
       /**
        * @return a stream of futures added to this combiner.
        */
-      public Stream<Future<? extends T>> getFutures() {
-         return futures.stream();
+      @SuppressWarnings("unchecked")
+      public Stream<Future<T>> getFutures() {
+         return (Stream<Future<T>>) (Stream<?>) futures.stream();
       }
 
       /**
@@ -128,10 +130,8 @@ public abstract class Futures {
        */
       @SuppressWarnings("unchecked")
       public CombinedFuture<T, T> toAnyOf() {
-         if (futures.isEmpty()) {
-            final var combined = new CombinedFuture<T, T>(List.of());
-            return combined;
-         }
+         if (futures.isEmpty())
+            return new CombinedFuture<>(List.of());
 
          final var futures = new ArrayList<>(this.futures);
          final var combinedFuture = new CombinedFuture<T, T>(futures);
@@ -153,10 +153,8 @@ public abstract class Futures {
        */
       @SuppressWarnings("unchecked")
       public CombinedFuture<T, T> toAnyOfDeferringExceptions() {
-         if (futures.isEmpty()) {
-            final var combined = new CombinedFuture<T, T>(List.of());
-            return combined;
-         }
+         if (futures.isEmpty())
+            return new CombinedFuture<>(List.of());
 
          final var futures = new ArrayList<>(this.futures);
          final var combinedFuture = new CombinedFuture<T, T>(futures);
@@ -344,8 +342,9 @@ public abstract class Futures {
       /**
        * @return a stream of futures added to this combiner.
        */
-      public Stream<Future<? extends @Nullable Iterable<? extends T>>> getFutures() {
-         return futures.stream();
+      @SuppressWarnings("unchecked")
+      public Stream<Future<@Nullable Iterable<T>>> getFutures() {
+         return (Stream<Future<@Nullable Iterable<T>>>) (Stream<?>) futures.stream();
       }
 
       /**
@@ -354,14 +353,15 @@ public abstract class Futures {
        *
        * @return a future containing a list of results from the combined futures
        */
-      public CombinedFuture<Iterable<? extends T>, List<T>> toList() {
+      public CombinedFuture<Iterable<T>, List<T>> toList() {
          if (futures.isEmpty()) {
-            final var combined = new CombinedFuture<Iterable<? extends T>, List<T>>(List.of());
+            final var combined = new CombinedFuture<Iterable<T>, List<T>>(List.of());
             combined.complete(List.of());
             return combined;
          }
 
-         final var futures = new ArrayList<>(this.futures);
+         @SuppressWarnings("unchecked")
+         final var futures = new ArrayList<>((Set<Future<@Nullable Iterable<T>>>) (Set<?>) this.futures);
          var combiningFuture = CompletableFuture.completedFuture(new ArrayList<T>());
 
          for (final var future : futures) {
@@ -373,7 +373,7 @@ public abstract class Futures {
             });
          }
 
-         final var combinedFuture = new CombinedFuture<Iterable<? extends T>, List<T>>(futures);
+         final var combinedFuture = new CombinedFuture<Iterable<T>, List<T>>(futures);
          combinedFuture.completeWith(combiningFuture);
          return combinedFuture;
       }
@@ -384,14 +384,15 @@ public abstract class Futures {
        *
        * @return a future containing a set of results from the combined futures
        */
-      public CombinedFuture<Iterable<? extends T>, Set<T>> toSet() {
+      public CombinedFuture<Iterable<T>, Set<T>> toSet() {
          if (futures.isEmpty()) {
-            final var combined = new CombinedFuture<Iterable<? extends T>, Set<T>>(List.of());
+            final var combined = new CombinedFuture<Iterable<T>, Set<T>>(List.of());
             combined.complete(Set.of());
             return combined;
          }
 
-         final var futures = new ArrayList<>(this.futures);
+         @SuppressWarnings("unchecked")
+         final var futures = new ArrayList<>((Set<Future<@Nullable Iterable<T>>>) (Set<?>) this.futures);
          var combiningFuture = CompletableFuture.completedFuture(new HashSet<T>());
 
          for (final var future : futures) {
@@ -403,7 +404,7 @@ public abstract class Futures {
             });
          }
 
-         final var combinedFuture = new CombinedFuture<Iterable<? extends T>, Set<T>>(futures);
+         final var combinedFuture = new CombinedFuture<Iterable<T>, Set<T>>(futures);
          combinedFuture.completeWith(combiningFuture);
          return combinedFuture;
       }
@@ -896,5 +897,8 @@ public abstract class Futures {
       });
       forwardCancellation(cf, future);
       return cf;
+   }
+
+   private Futures() {
    }
 }
