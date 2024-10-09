@@ -30,6 +30,7 @@ import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.eclipse.jdt.annotation.Nullable;
 
 import io.github.futures4j.util.ThrowingBiConsumer;
+import io.github.futures4j.util.ThrowingBiFunction;
 import io.github.futures4j.util.ThrowingConsumer;
 import io.github.futures4j.util.ThrowingFunction;
 import io.github.futures4j.util.ThrowingRunnable;
@@ -1776,6 +1777,16 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       return toExtendedFuture(super.thenCombine(other, fn));
    }
 
+   public <U, V> ExtendedFuture<V> thenCombine(final CompletionStage<? extends U> other,
+         final ThrowingBiFunction<? super T, ? super U, ? extends V, ?> fn) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateFutureId();
+         return toExtendedFuture(super.thenCombine(toExtendedFuture(other), (result, otherResult) -> interruptiblyCombine(fId, result,
+            otherResult, fn)));
+      }
+      return toExtendedFuture(super.thenCombine(other, fn));
+   }
+
    @Override
    public <U, V> ExtendedFuture<V> thenCombineAsync(final CompletionStage<? extends U> other,
          final BiFunction<? super T, ? super U, ? extends V> fn) {
@@ -1790,6 +1801,26 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @Override
    public <U, V> ExtendedFuture<V> thenCombineAsync(final CompletionStage<? extends U> other,
          final BiFunction<? super T, ? super U, ? extends V> fn, final Executor executor) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateFutureId();
+         return toExtendedFuture(super.thenCombineAsync(toExtendedFuture(other), (result, otherResult) -> interruptiblyCombine(fId, result,
+            otherResult, fn), executor));
+      }
+      return toExtendedFuture(super.thenCombineAsync(other, fn, executor));
+   }
+
+   public <U, V> ExtendedFuture<V> thenCombineAsync(final CompletionStage<? extends U> other,
+         final ThrowingBiFunction<? super T, ? super U, ? extends V, ?> fn) {
+      if (interruptibleStages) {
+         final var fId = NewIncompleteFutureHolder.generateFutureId();
+         return toExtendedFuture(super.thenCombineAsync(toExtendedFuture(other), (result, otherResult) -> interruptiblyCombine(fId, result,
+            otherResult, fn)));
+      }
+      return toExtendedFuture(super.thenCombineAsync(other, fn));
+   }
+
+   public <U, V> ExtendedFuture<V> thenCombineAsync(final CompletionStage<? extends U> other,
+         final ThrowingBiFunction<? super T, ? super U, ? extends V, ?> fn, final Executor executor) {
       if (interruptibleStages) {
          final var fId = NewIncompleteFutureHolder.generateFutureId();
          return toExtendedFuture(super.thenCombineAsync(toExtendedFuture(other), (result, otherResult) -> interruptiblyCombine(fId, result,
