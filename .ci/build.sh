@@ -188,8 +188,8 @@ if [[ ${MAY_CREATE_RELEASE:-false} == "true" ]]; then
     echo "# Preparing $JAVADOC_BRANCH branch...            #"
     echo "###################################################"
     initializeSiteBranch --branch $JAVADOC_BRANCH --revert-last-commit
-    rm -f target/*-javadoc.jar
-    MAVEN_GOAL+=" -Dmaven.javadoc.skip=false"
+    rm -rf target/*-javadoc.jar target/reports/apidocs
+    MAVEN_GOAL+=" -Dskip.maven.javadoc=false"
   fi
 else
   MAVEN_GOAL="verify"
@@ -231,8 +231,13 @@ EOF
   echo "###################################################"
   echo "# Deploying Javadoc...                            #"
   echo "###################################################"
-  mkdir /tmp/$JAVADOC_BRANCH/javadoc
-  unzip "target/*-javadoc.jar" -d /tmp/$JAVADOC_BRANCH/javadoc
+  rm -rf /tmp/$JAVADOC_BRANCH/javadoc
+  if [[ -f target/reports/apidocs/index.html ]]; then
+    mv target/reports/apidocs /tmp/$JAVADOC_BRANCH/javadoc
+  else
+    mkdir /tmp/$JAVADOC_BRANCH/javadoc
+    unzip "target/*-javadoc.jar" -d /tmp/$JAVADOC_BRANCH/javadoc
+  fi
   pushd /tmp/$JAVADOC_BRANCH >/dev/null
     cat <<EOF > index.html
 <!DOCTYPE html>
