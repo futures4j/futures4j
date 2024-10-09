@@ -11,10 +11,6 @@ package io.github.futures4j.util;
 @FunctionalInterface
 public interface ThrowingRunnable<X extends Throwable> extends Runnable {
 
-   static ThrowingRunnable<RuntimeException> from(final Runnable runnable) {
-      return runnable::run;
-   }
-
    @Override
    default void run() {
       try {

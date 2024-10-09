@@ -13,10 +13,6 @@ import java.util.function.Consumer;
 @FunctionalInterface
 public interface ThrowingConsumer<I, X extends Throwable> extends Consumer<I> {
 
-   static <T> ThrowingConsumer<T, RuntimeException> from(final Consumer<T> consumer) {
-      return consumer::accept;
-   }
-
    @Override
    default void accept(final I elem) {
       try {

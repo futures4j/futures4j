@@ -13,10 +13,6 @@ import java.util.function.Supplier;
 @FunctionalInterface
 public interface ThrowingSupplier<I, X extends Throwable> extends Supplier<I> {
 
-   static <T> ThrowingSupplier<T, RuntimeException> from(final Supplier<T> supplier) {
-      return supplier::get;
-   }
-
    @Override
    default I get() {
       try {
