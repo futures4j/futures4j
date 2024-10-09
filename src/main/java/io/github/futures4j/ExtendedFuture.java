@@ -602,11 +602,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    public ExtendedFuture<@Nullable Void> acceptEither(final CompletionStage<? extends T> other,
          final ThrowingConsumer<? super T, ?> action) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.acceptEither(toExtendedFuture(other), result -> interruptiblyAccept(fId, result, action)));
-      }
-      return toExtendedFuture(super.acceptEither(other, action));
+      return acceptEither(other, (Consumer<? super T>) action);
    }
 
    @Override
@@ -631,21 +627,12 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    public ExtendedFuture<@Nullable Void> acceptEitherAsync(final CompletionStage<? extends T> other,
          final ThrowingConsumer<? super T, ?> action) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.acceptEitherAsync(toExtendedFuture(other), result -> interruptiblyAccept(fId, result, action)));
-      }
-      return toExtendedFuture(super.acceptEitherAsync(other, action));
+      return acceptEitherAsync(other, (Consumer<? super T>) action);
    }
 
    public ExtendedFuture<@Nullable Void> acceptEitherAsync(final CompletionStage<? extends T> other,
          final ThrowingConsumer<? super T, ?> action, final Executor executor) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.acceptEitherAsync(toExtendedFuture(other), result -> interruptiblyAccept(fId, result, action),
-            executor));
-      }
-      return toExtendedFuture(super.acceptEitherAsync(other, action, executor));
+      return acceptEitherAsync(other, (Consumer<? super T>) action, executor);
    }
 
    /**
@@ -680,11 +667,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    public <U> ExtendedFuture<U> applyToEither(final CompletionStage<? extends T> other, final ThrowingFunction<? super T, U, ?> fn) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.applyToEither(toExtendedFuture(other), result -> interruptiblyApply(fId, result, fn)));
-      }
-      return toExtendedFuture(super.applyToEither(other, fn));
+      return applyToEither(other, (Function<? super T, U>) fn);
    }
 
    @Override
@@ -708,21 +691,12 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    public <U> ExtendedFuture<U> applyToEitherAsync(final CompletionStage<? extends T> other, final ThrowingFunction<? super T, U, ?> fn) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.applyToEitherAsync(toExtendedFuture(other), result -> interruptiblyApply(fId, result, fn)));
-      }
-      return toExtendedFuture(super.applyToEitherAsync(other, fn));
+      return applyToEitherAsync(other, (Function<? super T, U>) fn);
    }
 
    public <U> ExtendedFuture<U> applyToEitherAsync(final CompletionStage<? extends T> other, final ThrowingFunction<? super T, U, ?> fn,
          final Executor executor) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.applyToEitherAsync(toExtendedFuture(other), result -> interruptiblyApply(fId, result, fn),
-            executor));
-      }
-      return toExtendedFuture(super.applyToEitherAsync(other, fn, executor));
+      return applyToEitherAsync(other, (Function<? super T, U>) fn, executor);
    }
 
    /**
@@ -782,68 +756,55 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    public ExtendedFuture<T> asReadOnly(final ReadOnlyMode readOnlyMode) {
       final var throwOnMutationAttempt = readOnlyMode.equals(ReadOnlyMode.THROW_ON_MUTATION);
       return new WrappingFuture<>(this, false, interruptibleStages, defaultExecutor) {
-         @Override
-         public boolean cancel(final boolean mayInterruptIfRunning) {
+
+         private WrappingFuture<T> handleModificationAttempt() {
             if (throwOnMutationAttempt)
                throw new UnsupportedOperationException(this + " is read-only.");
-            LOG.log(Level.WARNING, "Attempted to cancel a read-only future: " + this);
+            LOG.log(Level.WARNING, "Attempted to alter a read-only future: " + this);
+            return this;
+         }
+
+         @Override
+         public boolean cancel(final boolean mayInterruptIfRunning) {
+            handleModificationAttempt();
             return isCancelled();
          }
 
          @Override
          public boolean complete(final T value) {
-            if (throwOnMutationAttempt)
-               throw new UnsupportedOperationException(this + " is read-only.");
-            LOG.log(Level.WARNING, "Attempted to complete a read-only future: " + this);
+            handleModificationAttempt();
             return false;
          }
 
          @Override
          public ExtendedFuture<T> completeAsync(final Supplier<? extends T> supplier) {
-            if (throwOnMutationAttempt)
-               throw new UnsupportedOperationException(this + " is read-only.");
-            LOG.log(Level.WARNING, "Attempted to complete a read-only future: " + this);
-            return this;
+            return handleModificationAttempt();
          }
 
          @Override
          public ExtendedFuture<T> completeAsync(final Supplier<? extends T> supplier, final Executor executor) {
-            if (throwOnMutationAttempt)
-               throw new UnsupportedOperationException(this + " is read-only.");
-            LOG.log(Level.WARNING, "Attempted to complete a read-only future: " + this);
-            return this;
+            return handleModificationAttempt();
          }
 
          @Override
          public ExtendedFuture<T> completeAsync(final ThrowingSupplier<? extends T, ?> supplier) {
-            if (throwOnMutationAttempt)
-               throw new UnsupportedOperationException(this + " is read-only.");
-            LOG.log(Level.WARNING, "Attempted to complete a read-only future: " + this);
-            return this;
+            return handleModificationAttempt();
          }
 
          @Override
          public ExtendedFuture<T> completeAsync(final ThrowingSupplier<? extends T, ?> supplier, final Executor executor) {
-            if (throwOnMutationAttempt)
-               throw new UnsupportedOperationException(this + " is read-only.");
-            LOG.log(Level.WARNING, "Attempted to complete a read-only future: " + this);
-            return this;
+            return handleModificationAttempt();
          }
 
          @Override
          public boolean completeExceptionally(final Throwable ex) {
-            if (throwOnMutationAttempt)
-               throw new UnsupportedOperationException(this + " is read-only.");
-            LOG.log(Level.WARNING, "Attempted to complete a read-only future: " + this);
+            handleModificationAttempt();
             return false;
          }
 
          @Override
          public ExtendedFuture<T> completeOnTimeout(final T value, final long timeout, final TimeUnit unit) {
-            if (throwOnMutationAttempt)
-               throw new UnsupportedOperationException(this + " is read-only.");
-            LOG.log(Level.WARNING, "Attempted to complete a read-only future: " + this);
-            return this;
+            return handleModificationAttempt();
          }
 
          @Override
@@ -853,16 +814,12 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
          @Override
          public void obtrudeException(final Throwable ex) {
-            if (throwOnMutationAttempt)
-               throw new UnsupportedOperationException(this + " is read-only.");
-            LOG.log(Level.WARNING, "Attempted to obtrude a read-only future: " + this);
+            handleModificationAttempt();
          }
 
          @Override
          public void obtrudeValue(final T value) {
-            if (throwOnMutationAttempt)
-               throw new UnsupportedOperationException(this + " is read-only.");
-            LOG.log(Level.WARNING, "Attempted to obtrude a read-only future: " + this);
+            handleModificationAttempt();
          }
       };
    }
@@ -941,8 +898,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     * @return this {@code ExtendedFuture} for method chaining
     */
    public ExtendedFuture<T> completeAsync(final ThrowingSupplier<? extends T, ?> supplier) {
-      super.completeAsync(supplier);
-      return this;
+      return completeAsync((Supplier<? extends T>) supplier);
    }
 
    /**
@@ -953,8 +909,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     * @return this {@code ExtendedFuture} for method chaining
     */
    public ExtendedFuture<T> completeAsync(final ThrowingSupplier<? extends T, ?> supplier, final Executor executor) {
-      super.completeAsync(supplier, executor);
-      return this;
+      return completeAsync((Supplier<? extends T>) supplier, executor);
    }
 
    /**
@@ -1009,7 +964,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    public ExtendedFuture<T> exceptionally(final ThrowingFunction<Throwable, ? extends T, ?> fn) {
-      return toExtendedFuture(super.exceptionally(fn));
+      return exceptionally((Function<Throwable, ? extends T>) fn);
    }
 
    // @Override
@@ -1025,11 +980,11 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    public ExtendedFuture<T> exceptionallyAsync(final ThrowingFunction<Throwable, ? extends T, ?> fn) {
-      return handleAsync((result, ex) -> ex == null ? result : fn.apply(ex));
+      return exceptionallyAsync((Function<Throwable, ? extends T>) fn);
    }
 
    public ExtendedFuture<T> exceptionallyAsync(final ThrowingFunction<Throwable, ? extends T, ?> fn, final Executor executor) {
-      return handleAsync((result, ex) -> ex == null ? result : fn.apply(ex), executor);
+      return exceptionallyAsync((Function<Throwable, ? extends T>) fn, executor);
    }
 
    // @Override
@@ -1039,7 +994,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    public ExtendedFuture<T> exceptionallyCompose(final ThrowingFunction<Throwable, ? extends CompletionStage<T>, ?> fn) {
-      return handle((result, ex) -> ex == null ? ExtendedFuture.completedFuture(result) : fn.apply(ex)).thenCompose(f -> f);
+      return exceptionallyCompose((Function<Throwable, ? extends CompletionStage<T>>) fn);
    }
 
    // @Override
@@ -1055,12 +1010,12 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    public ExtendedFuture<T> exceptionallyComposeAsync(final ThrowingFunction<Throwable, ? extends CompletionStage<T>, ?> fn) {
-      return handleAsync((result, ex) -> ex == null ? ExtendedFuture.completedFuture(result) : fn.apply(ex)).thenCompose(f -> f);
+      return exceptionallyComposeAsync((Function<Throwable, ? extends CompletionStage<T>>) fn);
    }
 
    public ExtendedFuture<T> exceptionallyComposeAsync(final ThrowingFunction<Throwable, ? extends CompletionStage<T>, ?> fn,
          final Executor executor) {
-      return handleAsync((result, ex) -> ex == null ? ExtendedFuture.completedFuture(result) : fn.apply(ex), executor).thenCompose(f -> f);
+      return exceptionallyComposeAsync((Function<Throwable, ? extends CompletionStage<T>>) fn, executor);
    }
 
    /**
@@ -1506,11 +1461,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    public ExtendedFuture<@Nullable Void> runAfterBoth(final CompletionStage<?> other, final ThrowingRunnable<?> action) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.runAfterBoth(toExtendedFuture(other), () -> interruptiblyRun(fId, action)));
-      }
-      return toExtendedFuture(super.runAfterBoth(other, action));
+      return runAfterBoth(other, (Runnable) action);
    }
 
    @Override
@@ -1532,20 +1483,12 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    public ExtendedFuture<@Nullable Void> runAfterBothAsync(final CompletionStage<?> other, final ThrowingRunnable<?> action) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.runAfterBothAsync(toExtendedFuture(other), () -> interruptiblyRun(fId, action)));
-      }
-      return toExtendedFuture(super.runAfterBothAsync(other, action));
+      return runAfterBothAsync(other, (Runnable) action);
    }
 
    public ExtendedFuture<@Nullable Void> runAfterBothAsync(final CompletionStage<?> other, final ThrowingRunnable<?> action,
          final Executor executor) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.runAfterBothAsync(toExtendedFuture(other), () -> interruptiblyRun(fId, action), executor));
-      }
-      return toExtendedFuture(super.runAfterBothAsync(other, action, executor));
+      return runAfterBothAsync(other, (Runnable) action, executor);
    }
 
    @Override
@@ -1558,11 +1501,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    public ExtendedFuture<@Nullable Void> runAfterEither(final CompletionStage<?> other, final ThrowingRunnable<?> action) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.runAfterEither(toExtendedFuture(other), () -> interruptiblyRun(fId, action)));
-      }
-      return toExtendedFuture(super.runAfterEither(other, action));
+      return runAfterEither(other, (Runnable) action);
    }
 
    @Override
@@ -1585,20 +1524,12 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    public ExtendedFuture<@Nullable Void> runAfterEitherAsync(final CompletionStage<?> other, final ThrowingRunnable<?> action) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.runAfterEitherAsync(toExtendedFuture(other), () -> interruptiblyRun(fId, action)));
-      }
-      return toExtendedFuture(super.runAfterEitherAsync(other, action));
+      return runAfterEitherAsync(other, (Runnable) action);
    }
 
    public ExtendedFuture<@Nullable Void> runAfterEitherAsync(final CompletionStage<?> other, final ThrowingRunnable<?> action,
          final Executor executor) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.runAfterEitherAsync(toExtendedFuture(other), () -> interruptiblyRun(fId, action), executor));
-      }
-      return toExtendedFuture(super.runAfterEitherAsync(other, action, executor));
+      return runAfterEitherAsync(other, (Runnable) action, executor);
    }
 
    @Override
@@ -1611,11 +1542,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    public ExtendedFuture<@Nullable Void> thenAccept(final ThrowingConsumer<? super T, ?> action) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.thenAccept(result -> interruptiblyAccept(fId, result, action)));
-      }
-      return toExtendedFuture(super.thenAccept(action));
+      return thenAccept((Consumer<? super T>) action);
    }
 
    @Override
@@ -1637,19 +1564,11 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    public ExtendedFuture<@Nullable Void> thenAcceptAsync(final ThrowingConsumer<? super T, ?> action) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.thenAcceptAsync(result -> interruptiblyAccept(fId, result, action)));
-      }
-      return toExtendedFuture(super.thenAcceptAsync(action));
+      return thenAcceptAsync((Consumer<? super T>) action);
    }
 
    public ExtendedFuture<@Nullable Void> thenAcceptAsync(final ThrowingConsumer<? super T, ?> action, final Executor executor) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.thenAcceptAsync(result -> interruptiblyAccept(fId, result, action), executor));
-      }
-      return toExtendedFuture(super.thenAcceptAsync(action, executor));
+      return thenAcceptAsync((Consumer<? super T>) action, executor);
    }
 
    @Override
@@ -1665,12 +1584,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    public <U> ExtendedFuture<@Nullable Void> thenAcceptBoth(final CompletionStage<? extends U> other,
          final ThrowingBiConsumer<? super T, ? super U, ?> action) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.thenAcceptBoth(toExtendedFuture(other), (result, otherResult) -> interruptiblyAcceptBoth(fId, result,
-            otherResult, action)));
-      }
-      return toExtendedFuture(super.thenAcceptBoth(other, action));
+      return thenAcceptBoth(other, (BiConsumer<? super T, ? super U>) action);
    }
 
    @Override
@@ -1697,22 +1611,12 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    public <U> ExtendedFuture<@Nullable Void> thenAcceptBothAsync(final CompletionStage<? extends U> other,
          final ThrowingBiConsumer<? super T, ? super U, ?> action) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.thenAcceptBothAsync(toExtendedFuture(other), (result, otherResult) -> interruptiblyAcceptBoth(fId,
-            result, otherResult, action)));
-      }
-      return toExtendedFuture(super.thenAcceptBothAsync(other, action));
+      return thenAcceptBothAsync(other, (BiConsumer<? super T, ? super U>) action);
    }
 
    public <U> ExtendedFuture<@Nullable Void> thenAcceptBothAsync(final CompletionStage<? extends U> other,
          final ThrowingBiConsumer<? super T, ? super U, ?> action, final Executor executor) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.thenAcceptBothAsync(toExtendedFuture(other), (result, otherResult) -> interruptiblyAcceptBoth(fId,
-            result, otherResult, action), executor));
-      }
-      return toExtendedFuture(super.thenAcceptBothAsync(other, action, executor));
+      return thenAcceptBothAsync(other, (BiConsumer<? super T, ? super U>) action, executor);
    }
 
    @Override
@@ -1725,11 +1629,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    public <U> ExtendedFuture<U> thenApply(final ThrowingFunction<? super T, ? extends U, ?> fn) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.thenApply(result -> interruptiblyApply(fId, result, fn)));
-      }
-      return toExtendedFuture(super.thenApply(fn));
+      return thenApply((Function<? super T, ? extends U>) fn);
    }
 
    @Override
@@ -1751,19 +1651,11 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    public <U> ExtendedFuture<U> thenApplyAsync(final ThrowingFunction<? super T, ? extends U, ?> fn) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.thenApplyAsync(result -> interruptiblyApply(fId, result, fn)));
-      }
-      return toExtendedFuture(super.thenApplyAsync(fn));
+      return thenApplyAsync((Function<? super T, ? extends U>) fn);
    }
 
    public <U> ExtendedFuture<U> thenApplyAsync(final ThrowingFunction<? super T, ? extends U, ?> fn, final Executor executor) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.thenApplyAsync(result -> interruptiblyApply(fId, result, fn), executor));
-      }
-      return toExtendedFuture(super.thenApplyAsync(fn, executor));
+      return thenApplyAsync((Function<? super T, ? extends U>) fn, executor);
    }
 
    @Override
@@ -1779,12 +1671,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    public <U, V> ExtendedFuture<V> thenCombine(final CompletionStage<? extends U> other,
          final ThrowingBiFunction<? super T, ? super U, ? extends V, ?> fn) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.thenCombine(toExtendedFuture(other), (result, otherResult) -> interruptiblyCombine(fId, result,
-            otherResult, fn)));
-      }
-      return toExtendedFuture(super.thenCombine(other, fn));
+      return thenCombine(other, (BiFunction<? super T, ? super U, ? extends V>) fn);
    }
 
    @Override
@@ -1811,22 +1698,12 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    public <U, V> ExtendedFuture<V> thenCombineAsync(final CompletionStage<? extends U> other,
          final ThrowingBiFunction<? super T, ? super U, ? extends V, ?> fn) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.thenCombineAsync(toExtendedFuture(other), (result, otherResult) -> interruptiblyCombine(fId, result,
-            otherResult, fn)));
-      }
-      return toExtendedFuture(super.thenCombineAsync(other, fn));
+      return thenCombineAsync(other, (BiFunction<? super T, ? super U, ? extends V>) fn);
    }
 
    public <U, V> ExtendedFuture<V> thenCombineAsync(final CompletionStage<? extends U> other,
          final ThrowingBiFunction<? super T, ? super U, ? extends V, ?> fn, final Executor executor) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.thenCombineAsync(toExtendedFuture(other), (result, otherResult) -> interruptiblyCombine(fId, result,
-            otherResult, fn), executor));
-      }
-      return toExtendedFuture(super.thenCombineAsync(other, fn, executor));
+      return thenCombineAsync(other, (BiFunction<? super T, ? super U, ? extends V>) fn, executor);
    }
 
    @Override
@@ -1879,11 +1756,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    public ExtendedFuture<@Nullable Void> thenRun(final ThrowingRunnable<?> action) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.thenRun(() -> interruptiblyRun(fId, action)));
-      }
-      return toExtendedFuture(super.thenRun(action));
+      return thenRun((Runnable) action);
    }
 
    @Override
@@ -1905,19 +1778,11 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    public ExtendedFuture<@Nullable Void> thenRunAsync(final ThrowingRunnable<?> action) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.thenRunAsync(() -> interruptiblyRun(fId, action)));
-      }
-      return toExtendedFuture(super.thenRunAsync(action));
+      return thenRunAsync((Runnable) action);
    }
 
    public ExtendedFuture<@Nullable Void> thenRunAsync(final ThrowingRunnable<?> action, final Executor executor) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.thenRunAsync(() -> interruptiblyRun(fId, action), executor));
-      }
-      return toExtendedFuture(super.thenRunAsync(action, executor));
+      return thenRunAsync((Runnable) action, executor);
    }
 
    private <V> ExtendedFuture<V> toExtendedFuture(final CompletionStage<V> source) {
@@ -1937,11 +1802,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    public ExtendedFuture<T> whenComplete(final ThrowingBiConsumer<? super @Nullable T, ? super @Nullable Throwable, ?> action) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.whenComplete((result, ex) -> interruptiblyWhenComplete(fId, result, ex, action)));
-      }
-      return toExtendedFuture(super.whenComplete(action));
+      return whenComplete((BiConsumer<? super @Nullable T, ? super @Nullable Throwable>) action);
    }
 
    @Override
@@ -1964,20 +1825,12 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    public ExtendedFuture<T> whenCompleteAsync(final ThrowingBiConsumer<? super @Nullable T, ? super @Nullable Throwable, ?> action) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.whenCompleteAsync((result, ex) -> interruptiblyWhenComplete(fId, result, ex, action)));
-      }
-      return toExtendedFuture(super.whenCompleteAsync(action));
+      return whenCompleteAsync((BiConsumer<? super @Nullable T, ? super @Nullable Throwable>) action);
    }
 
    public ExtendedFuture<T> whenCompleteAsync(final ThrowingBiConsumer<? super @Nullable T, ? super @Nullable Throwable, ?> action,
          final Executor executor) {
-      if (interruptibleStages) {
-         final var fId = NewIncompleteFutureHolder.generateFutureId();
-         return toExtendedFuture(super.whenCompleteAsync((result, ex) -> interruptiblyWhenComplete(fId, result, ex, action), executor));
-      }
-      return toExtendedFuture(super.whenCompleteAsync(action, executor));
+      return whenCompleteAsync((BiConsumer<? super @Nullable T, ? super @Nullable Throwable>) action, executor);
    }
 
    /**
