@@ -31,7 +31,7 @@ import net.sf.jstuff.core.ref.Ref;
  * @author <a href="https://sebthom.de/">Sebastian Thomschke</a>
  */
 @TestMethodOrder(MethodName.class)
-@Timeout(10)
+@Timeout(20)
 abstract class AbstractFutureTest {
 
    enum TaskState {

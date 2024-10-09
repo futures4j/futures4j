@@ -15,6 +15,7 @@ import java.lang.ref.WeakReference;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -426,27 +427,42 @@ class ExtendedFutureTest extends AbstractFutureTest {
    }
 
    @Test
-   void testInterruptibility() {
-      final var interruptibleFuture = ExtendedFuture.runAsync(() -> {
-         try {
-            Thread.sleep(1_000);
-         } catch (final InterruptedException e) {
-            Thread.currentThread().interrupt();
-         }
-      });
+   void testInterruptibility() throws InterruptedException {
+      final var interrupted = new CountDownLatch(1);
+
+      final var start1 = new CountDownLatch(1);
       final var nonInterruptibleFuture = ExtendedFuture.runAsync(() -> {
          try {
-            Thread.sleep(1_000);
+            start1.countDown();
+            Thread.sleep(2_000);
          } catch (final InterruptedException e) {
             Thread.currentThread().interrupt();
+            interrupted.countDown();
          }
       }).asNonInterruptible();
-
-      interruptibleFuture.cancel(true);
+      assertThat(nonInterruptibleFuture.isInterruptible()).isFalse();
+      start1.await();
       nonInterruptibleFuture.cancel(true);
 
-      assertThat(interruptibleFuture.isCancelled()).isTrue();
+      assertThat(interrupted.await(2, TimeUnit.SECONDS)).isFalse();
       assertThat(nonInterruptibleFuture.isCancelled()).isTrue();
+
+      final var start2 = new CountDownLatch(1);
+      final var interruptibleFuture = ExtendedFuture.runAsync(() -> {
+         try {
+            start2.countDown();
+            Thread.sleep(2_000);
+         } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+            interrupted.countDown();
+         }
+      });
+      assertThat(interruptibleFuture.isInterruptible()).isTrue();
+      start2.await();
+      interruptibleFuture.cancel(true);
+
+      assertThat(interrupted.await(2, TimeUnit.SECONDS)).isTrue();
+      assertThat(interruptibleFuture.isCancelled()).isTrue();
    }
 
    @Test
