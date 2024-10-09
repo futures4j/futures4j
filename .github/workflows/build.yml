@@ -146,6 +146,7 @@ jobs:
 
     - name: "Build with Maven 🔨"
       if: ${{ matrix.may_create_release && !env.ACT }}
+      id: maven-build
       env:
         GITHUB_USER: ${{ github.actor }}
         GITHUB_API_KEY: ${{ github.token }}
@@ -155,8 +156,26 @@ jobs:
         SONATYPE_CENTRAL_USER: ${{ vars.SONATYPE_CENTRAL_USER }}
         SONATYPE_CENTRAL_TOKEN: ${{ secrets.SONATYPE_CENTRAL_TOKEN }}
       run: |
+        set -eu
+
         bash .ci/build.sh ${{ github.event.inputs.additional_maven_args }} \
           -Djava.version.unit-tests=${{ matrix.java }}
+
+        if find . -path "*/target/site/jacoco/jacoco.xml" | grep -q .; then
+          echo 'has_jacoco_results=true' >> $GITHUB_OUTPUT
+        fi
+
+
+    - name: Publish test coverage to codeclimate.com
+      uses: paambaati/codeclimate-action@v9  # https://github.com/paambaati/codeclimate-action
+      if: ${{ matrix.may_create_release && steps.maven-build.outputs.has_jacoco_results && !env.ACT }}
+      env:
+        CC_TEST_REPORTER_ID: ${{ secrets.CODECLIMATE_TEST_REPORTER_ID }}
+        JACOCO_SOURCE_PATH: "${{ github.workspace }}/src/main/java"
+      with:
+        coverageLocations:  |
+          ${{ github.workspace }}/target/site/jacoco/jacoco.xml:jacoco
+          ${{ github.workspace }}/target/site/jacoco-it/jacoco.xml:jacoco
 
 
     ##################################################
