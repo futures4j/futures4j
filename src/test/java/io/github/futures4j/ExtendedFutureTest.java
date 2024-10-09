@@ -16,17 +16,29 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 import org.eclipse.jdt.annotation.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import io.github.futures4j.ExtendedFuture.ReadOnlyMode;
+import io.github.futures4j.util.ThrowingBiConsumer;
+import io.github.futures4j.util.ThrowingBiFunction;
+import io.github.futures4j.util.ThrowingConsumer;
+import io.github.futures4j.util.ThrowingFunction;
+import io.github.futures4j.util.ThrowingRunnable;
 import net.sf.jstuff.core.ref.MutableRef;
 
 /**
@@ -35,21 +47,21 @@ import net.sf.jstuff.core.ref.MutableRef;
 class ExtendedFutureTest extends AbstractFutureTest {
 
    private static final class TrackingExecutor implements Executor {
-      private final AtomicBoolean executed = new AtomicBoolean(false);
-      private final ExecutorService delegate = Executors.newSingleThreadExecutor();
+      final AtomicInteger executions = new AtomicInteger();
+      final ExecutorService delegate = Executors.newSingleThreadExecutor();
 
       @Override
       public void execute(final Runnable command) {
-         executed.set(true);
+         executions.incrementAndGet();
          delegate.execute(command);
       }
 
+      int getExecutions() {
+         return executions.getAndSet(0);
+      }
+
       boolean hasExecuted() {
-         try {
-            return executed.get();
-         } finally {
-            executed.set(false);
-         }
+         return executions.getAndSet(0) > 0;
       }
 
       void shutdown() {
@@ -67,58 +79,102 @@ class ExtendedFutureTest extends AbstractFutureTest {
    @Test
    void testAcceptEither() {
       for (final var interruptibleStages : List.of(true, false)) {
-         final var ref = MutableRef.of(null);
          final var future1 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
          final CompletableFuture<String> future2 = CompletableFuture.completedFuture("Result from future2");
 
-         var resultFuture = future1.acceptEither(future2, ref::set);
+         /*
+          * test right side
+          */
+         final AtomicInteger executions = new AtomicInteger();
+         ThrowingConsumer<String, ?> consumer = str -> {
+            assertThat(str).isEqualTo("Result from future2");
+            executions.incrementAndGet();
+         };
+         var resultFuture = Futures.combine( //
+            future1.acceptEither(future2, consumer), //
+            future1.acceptEither(future2, (Consumer<String>) consumer), //
+            future1.acceptEitherAsync(future2, consumer), //
+            future1.acceptEitherAsync(future2, (Consumer<String>) consumer), //
+            future1.acceptEitherAsync(future2, consumer, executor), //
+            future1.acceptEitherAsync(future2, (Consumer<String>) consumer, executor) //
+         ).toSet();
          resultFuture.join();
-         assertThat(ref.get()).isEqualTo("Result from future2");
+         assertThat(executions).hasValue(6);
+         assertThat(executor.getExecutions()).isEqualTo(2);
 
-         resultFuture = future1.acceptEitherAsync(future2, ref::set);
-         resultFuture.join();
-         assertThat(ref.get()).isEqualTo("Result from future2");
-
+         /*
+          * test left side
+          */
          future1.complete("Result from future1");
 
-         resultFuture = future1.acceptEither(future2, ref::set);
+         executions.set(0);
+         consumer = str -> {
+            assertThat(str).isEqualTo(future1.get());
+            executions.incrementAndGet();
+         };
+         resultFuture = Futures.combine( //
+            future1.acceptEither(future2, consumer), //
+            future1.acceptEither(future2, (Consumer<String>) consumer), //
+            future1.acceptEitherAsync(future2, consumer), //
+            future1.acceptEitherAsync(future2, (Consumer<String>) consumer), //
+            future1.acceptEitherAsync(future2, consumer, executor), //
+            future1.acceptEitherAsync(future2, (Consumer<String>) consumer, executor) //
+         ).toSet();
          resultFuture.join();
-         assertThat(ref.get()).isEqualTo("Result from future1");
-
-         resultFuture = future1.acceptEitherAsync(future2, ref::set);
-         resultFuture.join();
-         assertThat(ref.get()).isEqualTo("Result from future1");
-
-         resultFuture = future1.acceptEitherAsync(future2, ref::set, executor);
-         resultFuture.join();
-         assertThat(ref.get()).isEqualTo("Result from future1");
-         assertThat(executor.hasExecuted()).isTrue();
+         assertThat(executions).hasValue(6);
+         assertThat(executor.getExecutions()).isEqualTo(2);
       }
    }
 
    @Test
-   void testApplyToEither() {
+   void testApplyToEither() throws InterruptedException, ExecutionException {
       for (final var interruptibleStages : List.of(true, false)) {
          final var future1 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
          final CompletableFuture<String> future2 = CompletableFuture.completedFuture("Result from future2");
 
-         var resultFuture = future1.applyToEither(future2, result -> "First completed: " + result);
-         assertThat(resultFuture.join()).isEqualTo("First completed: Result from future2");
+         /*
+          * test right side
+          */
+         final AtomicInteger executions = new AtomicInteger();
+         ThrowingFunction<String, String, ?> fn = str -> {
+            assertThat(str).isEqualTo("Result from future2");
+            executions.incrementAndGet();
+            return "-> " + str;
+         };
+         var resultFuture = Futures.combine( //
+            future1.applyToEither(future2, fn), //
+            future1.applyToEither(future2, (Function<String, String>) fn), //
+            future1.applyToEitherAsync(future2, fn), //
+            future1.applyToEitherAsync(future2, (Function<String, String>) fn), //
+            future1.applyToEitherAsync(future2, fn, executor), //
+            future1.applyToEitherAsync(future2, (Function<String, String>) fn, executor) //
+         ).toSet();
+         assertThat(resultFuture.get()).containsExactly("-> Result from future2");
+         assertThat(executions).hasValue(6);
+         assertThat(executor.getExecutions()).isEqualTo(2);
 
-         resultFuture = future1.applyToEitherAsync(future2, result -> "First completed: " + result);
-         assertThat(resultFuture.join()).isEqualTo("First completed: Result from future2");
-
+         /*
+          * test left side
+          */
          future1.complete("Result from future1");
 
-         resultFuture = future1.applyToEither(future2, result -> "First completed: " + result);
-         assertThat(resultFuture.join()).isEqualTo("First completed: Result from future1");
-
-         resultFuture = future1.applyToEitherAsync(future2, result -> "First completed: " + result);
-         assertThat(resultFuture.join()).isEqualTo("First completed: Result from future1");
-
-         resultFuture = future1.applyToEitherAsync(future2, result -> "First completed: " + result, executor);
-         assertThat(resultFuture.join()).isEqualTo("First completed: Result from future1");
-         assertThat(executor.hasExecuted()).isTrue();
+         executions.set(0);
+         fn = str -> {
+            assertThat(str).isEqualTo(future1.get());
+            executions.incrementAndGet();
+            return "-> " + str;
+         };
+         resultFuture = Futures.combine( //
+            future1.applyToEither(future2, fn), //
+            future1.applyToEither(future2, (Function<String, String>) fn), //
+            future1.applyToEitherAsync(future2, fn), //
+            future1.applyToEitherAsync(future2, (Function<String, String>) fn), //
+            future1.applyToEitherAsync(future2, fn, executor), //
+            future1.applyToEitherAsync(future2, (Function<String, String>) fn, executor) //
+         ).toSet();
+         assertThat(resultFuture.get()).containsExactly("-> Result from future1");
+         assertThat(executions).hasValue(6);
+         assertThat(executor.getExecutions()).isEqualTo(2);
       }
    }
 
@@ -207,7 +263,16 @@ class ExtendedFutureTest extends AbstractFutureTest {
          assertThat(future.join()).isEqualTo("Result");
 
          future = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
+         future.completeAsync((Supplier<String>) () -> "Result");
+         assertThat(future.join()).isEqualTo("Result");
+
+         future = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
          future.completeAsync(() -> "Result", executor);
+         assertThat(future.join()).isEqualTo("Result");
+         assertThat(executor.hasExecuted()).isTrue();
+
+         future = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
+         future.completeAsync((Supplier<String>) () -> "Result", executor);
          assertThat(future.join()).isEqualTo("Result");
          assertThat(executor.hasExecuted()).isTrue();
       }
@@ -711,53 +776,78 @@ class ExtendedFutureTest extends AbstractFutureTest {
    @Test
    void testRunAfterBoth() {
       for (final var interruptibleStages : List.of(true, false)) {
-         final var ref1 = MutableRef.of(null);
-         final var ref2 = MutableRef.of(null);
-
          final var future1 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
          final var future2 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
 
-         final var resultFuture = future1.runAfterBoth(future2, () -> ref1.set("Both completed"));
-         final var asyncResultFuture = future2.runAfterBothAsync(future1, () -> ref2.set("Both completed async"));
-         final var asyncResultFuture2 = future2.runAfterBothAsync(future1, () -> ref2.set("Both completed async"), executor);
+         final AtomicInteger executions = new AtomicInteger();
+         final ThrowingRunnable<?> action = () -> {
+            executions.incrementAndGet();
+         };
+         final var resultFuture = Futures.combine( //
+            future1.runAfterBoth(future2, action), //
+            future1.runAfterBoth(future2, (Runnable) action), //
+            future1.runAfterBothAsync(future2, action), //
+            future1.runAfterBothAsync(future2, (Runnable) action), //
+            future1.runAfterBothAsync(future2, action, executor), //
+            future1.runAfterBothAsync(future2, (Runnable) action, executor) //
+         ).toSet();
 
          future1.complete("Complete 1");
          future2.complete("Complete 2");
 
          resultFuture.join();
-         assertThat(ref1.get()).isEqualTo("Both completed");
-
-         asyncResultFuture.join();
-         assertThat(ref2.get()).isEqualTo("Both completed async");
-
-         asyncResultFuture2.join();
-         assertThat(ref2.get()).isEqualTo("Both completed async");
-         assertThat(executor.hasExecuted()).isTrue();
+         assertThat(executions).hasValue(6);
+         assertThat(executor.getExecutions()).isEqualTo(2);
       }
    }
 
    @Test
    void testRunAfterEither() {
       for (final var interruptibleStages : List.of(true, false)) {
-         final var ref1 = MutableRef.of(null);
-         final var ref2 = MutableRef.of(null);
 
+         /*
+          * test left side
+          */
          final var future1 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
-         final var future2 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
-         final var resultFuture = future1.runAfterEither(future2, () -> ref1.set("Either completed"));
-         final var asyncResultFuture = future2.runAfterEitherAsync(future1, () -> ref2.set("Either completed async"));
-         final var asyncResultFuture2 = future2.runAfterEitherAsync(future1, () -> ref2.set("Either completed async"), executor);
+         var future2 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
+         final AtomicInteger executions = new AtomicInteger();
+         final ThrowingRunnable<?> action = () -> {
+            executions.incrementAndGet();
+         };
+         var resultFuture = Futures.combine( //
+            future1.runAfterEither(future2, action), //
+            future1.runAfterEither(future2, (Runnable) action), //
+            future1.runAfterEitherAsync(future2, action), //
+            future1.runAfterEitherAsync(future2, (Runnable) action), //
+            future1.runAfterEitherAsync(future2, action, executor), //
+            future1.runAfterEitherAsync(future2, (Runnable) action, executor) //
+         ).toSet();
 
-         future1.complete("Completed 1");
+         future2.complete("Complete 2");
+
          resultFuture.join();
-         assertThat(ref1.get()).isEqualTo("Either completed");
+         assertThat(executions).hasValue(6);
+         assertThat(executor.getExecutions()).isEqualTo(2);
 
-         asyncResultFuture.join();
-         assertThat(ref2.get()).isEqualTo("Either completed async");
+         /*
+          * test right side
+          */
+         future2 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
+         executions.set(0);
+         resultFuture = Futures.combine( //
+            future1.runAfterEither(future2, action), //
+            future1.runAfterEither(future2, (Runnable) action), //
+            future1.runAfterEitherAsync(future2, action), //
+            future1.runAfterEitherAsync(future2, (Runnable) action), //
+            future1.runAfterEitherAsync(future2, action, executor), //
+            future1.runAfterEitherAsync(future2, (Runnable) action, executor) //
+         ).toSet();
 
-         asyncResultFuture2.join();
-         assertThat(ref2.get()).isEqualTo("Either completed async");
-         assertThat(executor.hasExecuted()).isTrue();
+         future1.complete("Complete 1");
+
+         resultFuture.join();
+         assertThat(executions).hasValue(6);
+         assertThat(executor.getExecutions()).isEqualTo(2);
       }
    }
 
@@ -773,22 +863,22 @@ class ExtendedFutureTest extends AbstractFutureTest {
    void testThenAccept() {
       final var completedFuture = ExtendedFuture.completedFuture("Initial");
 
-      final var ref = MutableRef.of(null);
-
-      var future = completedFuture.thenAccept(ref::set);
-      future.join();
-      assertThat(ref.get()).isEqualTo("Initial");
-
-      ref.set(null);
-      future = completedFuture.thenAcceptAsync(ref::set);
-      future.join();
-      assertThat(ref.get()).isEqualTo("Initial");
-
-      ref.set(null);
-      future = completedFuture.thenAcceptAsync(ref::set, executor);
-      future.join();
-      assertThat(ref.get()).isEqualTo("Initial");
-      assertThat(executor.hasExecuted()).isTrue();
+      final AtomicInteger executions = new AtomicInteger();
+      final ThrowingConsumer<String, ?> consumer = str -> {
+         assertThat(str).isEqualTo("Initial");
+         executions.incrementAndGet();
+      };
+      final var resultFuture = Futures.combine( //
+         completedFuture.thenAccept(consumer), //
+         completedFuture.thenAccept((Consumer<String>) consumer), //
+         completedFuture.thenAcceptAsync(consumer), //
+         completedFuture.thenAcceptAsync((Consumer<String>) consumer), //
+         completedFuture.thenAcceptAsync(consumer, executor), //
+         completedFuture.thenAcceptAsync((Consumer<String>) consumer, executor) //
+      ).toSet();
+      resultFuture.join();
+      assertThat(executions).hasValue(6);
+      assertThat(executor.getExecutions()).isEqualTo(2);
    }
 
    @Test
@@ -811,42 +901,59 @@ class ExtendedFutureTest extends AbstractFutureTest {
    @Test
    void testThenAcceptBoth() {
       for (final var interruptibleStages : List.of(true, false)) {
-         final var ref = MutableRef.of(null);
          final var future1 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
          final var future2 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
 
-         final var resultFuture = future1.thenAcceptBoth(future2, (res1, res2) -> ref.set(res1 + " and " + res2));
-         final var asyncResultFuture = future1.thenAcceptBothAsync(future2, (res1, res2) -> ref.set(res1 + " and " + res2));
-         final var asyncResultFuture2 = future1.thenAcceptBothAsync(future2, (res1, res2) -> ref.set(res1 + " and " + res2), executor);
+         final AtomicInteger executions = new AtomicInteger();
+         final ThrowingBiConsumer<String, String, ?> consumer = (s1, s2) -> {
+            assertThat(s1).isEqualTo("First");
+            assertThat(s2).isEqualTo("Second");
+            executions.incrementAndGet();
+         };
+         final var resultFuture = Futures.combine( //
+            future1.thenAcceptBoth(future2, consumer), //
+            future1.thenAcceptBoth(future2, (BiConsumer<String, String>) consumer), //
+            future1.thenAcceptBothAsync(future2, consumer), //
+            future1.thenAcceptBothAsync(future2, (BiConsumer<String, String>) consumer), //
+            future1.thenAcceptBothAsync(future2, consumer, executor), //
+            future1.thenAcceptBothAsync(future2, (BiConsumer<String, String>) consumer, executor) //
+         ).toSet();
 
          future1.complete("First");
          future2.complete("Second");
 
          resultFuture.join();
-         assertThat(ref.get()).isEqualTo("First and Second");
-
-         asyncResultFuture.join();
-         assertThat(ref.get()).isEqualTo("First and Second");
-
-         asyncResultFuture2.join();
-         assertThat(ref.get()).isEqualTo("First and Second");
-         assertThat(executor.hasExecuted()).isTrue();
+         assertThat(executions).hasValue(6);
+         assertThat(executor.getExecutions()).isEqualTo(2);
       }
    }
 
    @Test
-   void testThenApply() {
-      final var completedFuture = ExtendedFuture.completedFuture("Initial");
+   void testThenApply() throws InterruptedException, ExecutionException {
+      for (final var interruptibleStages : List.of(true, false)) {
+         final var future1 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
 
-      var future = completedFuture.thenApply(s -> s + " -> Applied");
-      assertThat(future.join()).isEqualTo("Initial -> Applied");
+         final AtomicInteger executions = new AtomicInteger();
+         final ThrowingFunction<String, String, ?> fn = str -> {
+            assertThat(str).isEqualTo("Result 1");
+            executions.incrementAndGet();
+            return "-> " + str;
+         };
+         final var resultFuture = Futures.combine( //
+            future1.thenApply(fn), //
+            future1.thenApply((Function<String, String>) fn), //
+            future1.thenApplyAsync(fn), //
+            future1.thenApplyAsync((Function<String, String>) fn), //
+            future1.thenApplyAsync(fn, executor), //
+            future1.thenApplyAsync((Function<String, String>) fn, executor) //
+         ).toSet();
 
-      future = completedFuture.thenApplyAsync(s -> s + " -> Applied");
-      assertThat(future.join()).isEqualTo("Initial -> Applied");
+         future1.complete("Result 1");
 
-      future = completedFuture.thenApplyAsync(s -> s + " -> Applied", executor);
-      assertThat(future.join()).isEqualTo("Initial -> Applied");
-      assertThat(executor.hasExecuted()).isTrue();
+         assertThat(resultFuture.get()).containsExactly("-> Result 1");
+         assertThat(executions).hasValue(6);
+         assertThat(executor.getExecutions()).isEqualTo(2);
+      }
    }
 
    @Test
@@ -868,59 +975,88 @@ class ExtendedFutureTest extends AbstractFutureTest {
    }
 
    @Test
-   void testThenCombine() {
+   void testThenCombine() throws InterruptedException, ExecutionException {
       for (final var interruptibleStages : List.of(true, false)) {
          final var future1 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
          final var future2 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
 
-         final var resultFuture = future1.thenCombine(future2, (res1, res2) -> res1 + " combined with " + res2);
-         final var resultFutureAsync = future1.thenCombineAsync(future2, (res1, res2) -> res1 + " async combined with " + res2);
-         final var resultFutureAsync2 = future1.thenCombineAsync(future2, (res1, res2) -> res1 + " async combined with " + res2, executor);
+         final AtomicInteger executions = new AtomicInteger();
+         final ThrowingBiFunction<String, String, String, ?> fn = (s1, s2) -> {
+            assertThat(s1).isEqualTo("First");
+            assertThat(s2).isEqualTo("Second");
+            executions.incrementAndGet();
+            return s1 + " AND " + s2;
+         };
+         final var resultFuture = Futures.combine( //
+            future1.thenCombine(future2, fn), //
+            future1.thenCombine(future2, (BiFunction<String, String, String>) fn), //
+            future1.thenCombineAsync(future2, fn), //
+            future1.thenCombineAsync(future2, (BiFunction<String, String, String>) fn), //
+            future1.thenCombineAsync(future2, fn, executor), //
+            future1.thenCombineAsync(future2, (BiFunction<String, String, String>) fn, executor) //
+         ).toSet();
+
          future1.complete("First");
          future2.complete("Second");
 
-         assertThat(resultFuture.join()).isEqualTo("First combined with Second");
-         assertThat(resultFutureAsync.join()).isEqualTo("First async combined with Second");
-         assertThat(resultFutureAsync2.join()).isEqualTo("First async combined with Second");
-         assertThat(executor.hasExecuted()).isTrue();
+         assertThat(resultFuture.get()).containsExactly("First AND Second");
+         assertThat(executions).hasValue(6);
+         assertThat(executor.getExecutions()).isEqualTo(2);
       }
    }
 
    @Test
-   void testThenCompose() {
-      final var completedFuture = ExtendedFuture.completedFuture("Initial");
+   void testThenCompose() throws InterruptedException, ExecutionException {
+      for (final var interruptibleStages : List.of(true, false)) {
+         final var future1 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
 
-      var future = completedFuture.thenCompose(result -> CompletableFuture.completedFuture(result + " -> Composed"));
-      assertThat(future.join()).isEqualTo("Initial -> Composed");
+         final AtomicInteger executions = new AtomicInteger();
+         final ThrowingFunction<String, CompletableFuture<String>, ?> fn = str -> {
+            assertThat(str).isEqualTo("Initial");
+            executions.incrementAndGet();
+            return CompletableFuture.completedFuture(str + " -> Composed");
+         };
+         final var resultFuture = Futures.combine( //
+            future1.thenCompose(fn), //
+            future1.thenCompose((Function<String, CompletableFuture<String>>) fn), //
+            future1.thenComposeAsync(fn), //
+            future1.thenComposeAsync((Function<String, CompletableFuture<String>>) fn), //
+            future1.thenComposeAsync(fn, executor), //
+            future1.thenComposeAsync((Function<String, CompletableFuture<String>>) fn, executor) //
+         ).toSet();
 
-      future = completedFuture.thenComposeAsync(result -> CompletableFuture.completedFuture(result + " -> Composed"));
-      assertThat(future.join()).isEqualTo("Initial -> Composed");
+         future1.complete("Initial");
 
-      future = completedFuture.thenComposeAsync(result -> CompletableFuture.completedFuture(result + " -> Composed"), executor);
-      assertThat(future.join()).isEqualTo("Initial -> Composed");
-      assertThat(executor.hasExecuted()).isTrue();
+         assertThat(resultFuture.get()).containsExactly("Initial -> Composed");
+         assertThat(executions).hasValue(6);
+         assertThat(executor.getExecutions()).isEqualTo(2);
+      }
    }
 
    @Test
    void testThenRun() {
-      final var completedFuture = ExtendedFuture.completedFuture("Initial");
+      for (final var interruptibleStages : List.of(true, false)) {
+         final var future1 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
 
-      final var ref = MutableRef.of(null);
+         final AtomicInteger executions = new AtomicInteger();
+         final ThrowingRunnable<?> fn = () -> {
+            executions.incrementAndGet();
+         };
+         final var resultFuture = Futures.combine( //
+            future1.thenRun(fn), //
+            future1.thenRun((Runnable) fn), //
+            future1.thenRunAsync(fn), //
+            future1.thenRunAsync((Runnable) fn), //
+            future1.thenRunAsync(fn, executor), //
+            future1.thenRunAsync((Runnable) fn, executor) //
+         ).toSet();
 
-      var future = completedFuture.thenRun(() -> ref.set("Run"));
-      future.join();
-      assertThat(ref.get()).isEqualTo("Run");
+         future1.complete("Initial");
 
-      ref.set(null);
-      future = completedFuture.thenRunAsync(() -> ref.set("Run"));
-      future.join();
-      assertThat(ref.get()).isEqualTo("Run");
-
-      ref.set(null);
-      future = completedFuture.thenRunAsync(() -> ref.set("Run"), executor);
-      future.join();
-      assertThat(ref.get()).isEqualTo("Run");
-      assertThat(executor.hasExecuted()).isTrue();
+         resultFuture.join();
+         assertThat(executions).hasValue(6);
+         assertThat(executor.getExecutions()).isEqualTo(2);
+      }
    }
 
    @Test
@@ -932,23 +1068,29 @@ class ExtendedFutureTest extends AbstractFutureTest {
 
    @Test
    void testWhenComplete() {
-      final var completedFuture = ExtendedFuture.completedFuture("Initial");
+      for (final var interruptibleStages : List.of(true, false)) {
+         final var future1 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
 
-      final var ref = MutableRef.of(null);
-      var future = completedFuture.whenComplete((result, ex) -> ref.set(result));
-      future.join();
-      assertThat(ref.get()).isEqualTo("Initial");
+         final AtomicInteger executions = new AtomicInteger();
+         final ThrowingBiConsumer<String, Throwable, ?> fn = (result, ex) -> {
+            executions.incrementAndGet();
+            assertThat(result).isEqualTo("Initial");
+         };
+         final var resultFuture = Futures.combine( //
+            future1.whenComplete(fn), //
+            future1.whenComplete((BiConsumer<String, Throwable>) fn), //
+            future1.whenCompleteAsync(fn), //
+            future1.whenCompleteAsync((BiConsumer<String, Throwable>) fn), //
+            future1.whenCompleteAsync(fn, executor), //
+            future1.whenCompleteAsync((BiConsumer<String, Throwable>) fn, executor) //
+         ).toSet();
 
-      ref.set("");
-      future = completedFuture.whenCompleteAsync((result, ex) -> ref.set(result));
-      future.join();
-      assertThat(ref.get()).isEqualTo("Initial");
+         future1.complete("Initial");
 
-      ref.set("");
-      future = completedFuture.whenCompleteAsync((result, ex) -> ref.set(result), executor);
-      future.join();
-      assertThat(ref.get()).isEqualTo("Initial");
-      assertThat(executor.hasExecuted()).isTrue();
+         resultFuture.join();
+         assertThat(executions).hasValue(6);
+         assertThat(executor.getExecutions()).isEqualTo(2);
+      }
    }
 
    @Test
