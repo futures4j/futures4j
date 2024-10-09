@@ -198,7 +198,21 @@ It offers several improvements:
    var readOnly2 = myFuture.asReadOnly(ReadOnlyMode.IGNORE_MUTATION); // returns a delegating future that silently ignore modification attempts
    ```
 
-5. **Allows Defining a Default Executor**
+5. **Backports of Future Methods from Newer Java Versions to Java 11**
+
+   `ExtendedFuture` makes Future methods available in Java 11 that were only introduced in later Java versions, providing equivalent functionality.
+
+   Backported from Java 12:
+   - [CompletionStage#exceptionallyAsync(...)](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/CompletionStage.html#exceptionallyAsync(java.util.function.Function))
+   - [CompletionStage#exceptionallyCompose(...)](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/CompletionStage.html#exceptionallyCompose(java.util.function.Function))
+   - [CompletionStage#exceptionallyComposeAsync(...)](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/CompletionStage.html#exceptionallyComposeAsync(java.util.function.Function))
+
+   Backported from Java 19:
+   - [CompletableFuture#exceptionNow()](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/Future.html#exceptionNow())
+   - [CompletableFuture#resultNow()](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/Future.html#resultNow())
+
+
+6. **Allows Defining a Default Executor**
 
    You can specify a default executor for a future and its subsequent stages using
    [ExtendedFuture.createWithDefaultExecutor(Executor)](https://futures4j.github.io/futures4j/javadoc/io/github/futures4j/ExtendedFuture.html#createWithDefaultExecutor(java.util.concurrent.Executor)) or
@@ -215,7 +229,7 @@ It offers several improvements:
    var myOtherFuture = ExtendedFuture.runAsyncWithDefaultExecutor(runnable, myDefaultExecutor3);
    ```
 
-6. **Additional Convenience Methods**
+7. **Additional Convenience Methods**
 
    ```java
    ExtendedFuture<String> myFuture = ...;
@@ -236,20 +250,6 @@ It offers several improvements:
    CompletableFuture<String> otherFuture = ...;
    myFuture.completeWith(otherFuture);
    ```
-
-7. **Backports of Future Methods from Newer Java Versions to Java 11**
-
-   `ExtendedFuture` makes Future methods available in Java 11 that were only introduced in later Java versions, providing equivalent functionality.
-
-   Backported from Java 12:
-   - [CompletionStage#exceptionallyAsync(...)](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/CompletionStage.html#exceptionallyAsync(java.util.function.Function))
-   - [CompletionStage#exceptionallyCompose(...)](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/CompletionStage.html#exceptionallyCompose(java.util.function.Function))
-   - [CompletionStage#exceptionallyComposeAsync(...)](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/CompletionStage.html#exceptionallyComposeAsync(java.util.function.Function))
-
-   Backported from Java 19:
-   - [CompletableFuture#exceptionNow()](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/Future.html#exceptionNow())
-   - [CompletableFuture#resultNow()](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/Future.html#resultNow())
-
 
 ### <a name="Futures"></a>The `Futures` utility class
 
