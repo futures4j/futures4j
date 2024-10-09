@@ -95,6 +95,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
        */
       @SuppressWarnings("null")
       public ExtendedFuture<V> build() {
+         final var wrapped = this.wrapped;
          final ExtendedFuture<V> fut = wrapped == null //
                ? interruptible //
                      ? new InterruptibleFuture<>(cancellableByDependents, interruptibleStages, defaultExecutor)
@@ -309,7 +310,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     *
     * @param <T> the result type of the future
     */
-   private record NewIncompleteFutureHolder<T>(InterruptibleFuture<T> future, long expiresOn) {
+   private static final class NewIncompleteFutureHolder<T> {
 
       private static final AtomicInteger ID_GENERATOR = new AtomicInteger();
       private static final ThreadLocal<@Nullable Integer> ID_HOLDER = new ThreadLocal<>();
@@ -365,6 +366,14 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          final var futureId = ID_GENERATOR.incrementAndGet();
          ID_HOLDER.set(futureId);
          return futureId;
+      }
+
+      final InterruptibleFuture<T> future;
+      final long expiresOn;
+
+      NewIncompleteFutureHolder(final InterruptibleFuture<T> future, final long expiresOn) {
+         this.future = future;
+         this.expiresOn = expiresOn;
       }
    }
 
@@ -439,8 +448,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     * @return an {@link ExtendedFuture} wrapping the given future
     */
    public static <V> ExtendedFuture<V> from(final CompletableFuture<V> source) {
-      if (source instanceof final ExtendedFuture<V> ef)
-         return ef.asCancellableByDependents(false);
+      if (source instanceof ExtendedFuture)
+         return ((ExtendedFuture<V>) source).asCancellableByDependents(false);
       return new WrappingFuture<>(source, false, true, source.defaultExecutor());
    }
 
@@ -1001,50 +1010,50 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       return toExtendedFuture(super.exceptionally(fn));
    }
 
-   @Override
    public ExtendedFuture<T> exceptionallyAsync(final Function<Throwable, ? extends T> fn) {
-      return toExtendedFuture(super.exceptionallyAsync(fn));
+      // emulate exceptionallyAsync introduced in Java 12
+      return handleAsync((result, ex) -> ex == null ? result : fn.apply(ex));
    }
 
-   @Override
    public ExtendedFuture<T> exceptionallyAsync(final Function<Throwable, ? extends T> fn, final Executor executor) {
-      return toExtendedFuture(super.exceptionallyAsync(fn, executor));
+      // emulate exceptionallyAsync introduced in Java 12
+      return handleAsync((result, ex) -> ex == null ? result : fn.apply(ex), executor);
    }
 
    public ExtendedFuture<T> exceptionallyAsync(final ThrowingFunction<Throwable, ? extends T, ?> fn) {
-      return toExtendedFuture(super.exceptionallyAsync(fn));
+      return handleAsync((result, ex) -> ex == null ? result : fn.apply(ex));
    }
 
    public ExtendedFuture<T> exceptionallyAsync(final ThrowingFunction<Throwable, ? extends T, ?> fn, final Executor executor) {
-      return toExtendedFuture(super.exceptionallyAsync(fn, executor));
+      return handleAsync((result, ex) -> ex == null ? result : fn.apply(ex), executor);
    }
 
-   @Override
    public ExtendedFuture<T> exceptionallyCompose(final Function<Throwable, ? extends CompletionStage<T>> fn) {
-      return toExtendedFuture(super.exceptionallyCompose(fn));
+      // emulate exceptionallyCompose introduced in Java 12
+      return handle((result, ex) -> ex == null ? ExtendedFuture.completedFuture(result) : fn.apply(ex)).thenCompose(f -> f);
    }
 
    public ExtendedFuture<T> exceptionallyCompose(final ThrowingFunction<Throwable, ? extends CompletionStage<T>, ?> fn) {
-      return toExtendedFuture(super.exceptionallyCompose(fn));
+      return handle((result, ex) -> ex == null ? ExtendedFuture.completedFuture(result) : fn.apply(ex)).thenCompose(f -> f);
    }
 
-   @Override
    public ExtendedFuture<T> exceptionallyComposeAsync(final Function<Throwable, ? extends CompletionStage<T>> fn) {
-      return toExtendedFuture(super.exceptionallyComposeAsync(fn));
+      // emulate exceptionallyComposeAsync introduced in Java 12
+      return handleAsync((result, ex) -> ex == null ? ExtendedFuture.completedFuture(result) : fn.apply(ex)).thenCompose(f -> f);
    }
 
-   @Override
    public ExtendedFuture<T> exceptionallyComposeAsync(final Function<Throwable, ? extends CompletionStage<T>> fn, final Executor executor) {
-      return toExtendedFuture(super.exceptionallyComposeAsync(fn, executor));
+      // emulate exceptionallyComposeAsync introduced in Java 12
+      return handleAsync((result, ex) -> ex == null ? ExtendedFuture.completedFuture(result) : fn.apply(ex), executor).thenCompose(f -> f);
    }
 
    public ExtendedFuture<T> exceptionallyComposeAsync(final ThrowingFunction<Throwable, ? extends CompletionStage<T>, ?> fn) {
-      return toExtendedFuture(super.exceptionallyComposeAsync(fn));
+      return handleAsync((result, ex) -> ex == null ? ExtendedFuture.completedFuture(result) : fn.apply(ex)).thenCompose(f -> f);
    }
 
    public ExtendedFuture<T> exceptionallyComposeAsync(final ThrowingFunction<Throwable, ? extends CompletionStage<T>, ?> fn,
          final Executor executor) {
-      return toExtendedFuture(super.exceptionallyComposeAsync(fn, executor));
+      return handleAsync((result, ex) -> ex == null ? ExtendedFuture.completedFuture(result) : fn.apply(ex), executor).thenCompose(f -> f);
    }
 
    /**
@@ -1063,7 +1072,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          throw new IllegalStateException("Future completed with a result");
       } catch (final ExecutionException ex) {
          var cause = ex.getCause();
-         if (cause instanceof final CompletionException cex) {
+         if (cause instanceof CompletionException) {
+            final var cex = (CompletionException) cause;
             cause = cex.getCause();
             return cause == null ? cex : cause;
          }
@@ -1351,8 +1361,11 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
       try {
          final var stage = fn.apply(result);
-         if (stage instanceof final ExtendedFuture<?> ef && ef.isCancellableByDependents()) {
-            f.cancellablePrecedingStages.add(ef);
+         if (stage instanceof ExtendedFuture) {
+            final var ef = (ExtendedFuture<?>) stage;
+            if (ef.isCancellableByDependents()) {
+               f.cancellablePrecedingStages.add(ef);
+            }
          }
          return stage;
       } finally {
@@ -1826,8 +1839,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    private <V> ExtendedFuture<V> toExtendedFuture(final CompletionStage<V> source) {
-      if (source instanceof final ExtendedFuture<V> ef)
-         return ef;
+      if (source instanceof ExtendedFuture)
+         return (ExtendedFuture<V>) source;
       final var cf = source.toCompletableFuture();
       return new WrappingFuture<>(cf, cancellableByDependents, interruptibleStages, cf.defaultExecutor());
    }

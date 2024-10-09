@@ -882,8 +882,8 @@ public abstract class Futures {
    }
 
    private static <T> CompletableFuture<T> toCompletableFuture(final Future<T> future) {
-      if (future instanceof final CompletableFuture<T> cf)
-         return cf;
+      if (future instanceof CompletableFuture)
+         return (CompletableFuture<T>) future;
       final var cf = CompletableFuture.supplyAsync(() -> {
          try {
             return future.get();

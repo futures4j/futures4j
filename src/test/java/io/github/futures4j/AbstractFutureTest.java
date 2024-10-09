@@ -109,8 +109,8 @@ abstract class AbstractFutureTest {
 
       assertThat(completedFuture.cancel(true)).isFalse();
 
-      if (completedFuture instanceof final WrappingFuture<U> ef) { // CHECKSTYLE:IGNORE .*
-         testCompletedFuture(ef.wrapped, value);
+      if (completedFuture instanceof WrappingFuture) { // CHECKSTYLE:IGNORE .*
+         testCompletedFuture(((WrappingFuture<U>) completedFuture).wrapped, value);
       }
    }
 

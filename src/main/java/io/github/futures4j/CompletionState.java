@@ -73,14 +73,14 @@ public enum CompletionState {
          if (future.isCancelled())
             return CompletionState.CANCELLED;
 
-         if (future instanceof final CompletableFuture<?> cf) {
-            if (cf.isCompletedExceptionally())
+         if (future instanceof CompletableFuture) {
+            if (((CompletableFuture<?>) future).isCompletedExceptionally())
                return CompletionState.FAILED;
             return CompletionState.SUCCESS;
          }
 
-         if (future instanceof final ForkJoinTask<?> fjt) {
-            if (fjt.isCompletedNormally())
+         if (future instanceof ForkJoinTask) {
+            if (((ForkJoinTask<?>) future).isCompletedNormally())
                return CompletionState.SUCCESS;
             return CompletionState.FAILED;
          }

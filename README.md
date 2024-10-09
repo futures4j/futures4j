@@ -16,7 +16,7 @@
    - [The **ExtendedFuture** class](#ExtendedFuture)
    - [The **Futures** utility class](#Futures)
    - [The **CompletionState** enum](#CompletionState)
-   - [Building from dources](#building)
+   - [Building from sources](#building)
 4. [License](#license)
 
 
@@ -28,7 +28,8 @@ It simplifies working with futures, providing convenient utilities to improve re
 
 ## <a name="compatibility"></a>Java Compatibility
 
-futures4j 1.x requires Java 17 or newer.
+- futures4j 1.1.x requires Java 11 or newer.
+- futures4j 1.0.x requires Java 17 or newer.
 
 
 ## <a name="usage"></a>Usage
@@ -89,7 +90,7 @@ You need to add this repository configuration to your Maven `settings.xml`:
 The [io.github.futures4j.ExtendedFuture](src/main/java/io/github/futures4j/ExtendedFuture.java "Source code")
 [ 📘 ](https://futures4j.github.io/futures4j/javadoc/io/github/futures4j/ExtendedFuture.html "JavaDoc")
 serves as a drop-in replacement and enhanced version of Java's
-[java.util.concurrent.CompletableFuture](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/concurrent/CompletableFuture.html) class.
+[java.util.concurrent.CompletableFuture](https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/util/concurrent/CompletableFuture.html) class.
 
 It offers several improvements:
 
@@ -338,18 +339,21 @@ switch (future.state()) {
 
 ### <a id="building"></a>Building from Sources
 
-To ensure reproducible builds, this [Maven](https://books.sonatype.com/mvnref-book/reference/index.html) project inherits from the [vegardit-maven-parent](https://github.com/vegardit/vegardit-maven-parent) project, which declares fixed versions and sensible default settings for all official Maven plugins.
+To ensure reproducible builds, this [Maven](https://books.sonatype.com/mvnref-book/reference/index.html) project inherits from the
+[vegardit-maven-parent](https://github.com/vegardit/vegardit-maven-parent) project, which declares fixed versions and sensible
+default settings for all official Maven plugins.
 
-The project also uses the [maven-toolchains-plugin](http://maven.apache.org/plugins/maven-toolchains-plugin/), which decouples the JDK used to execute Maven and its plugins from the target JDK used for compilation and unit testing. This ensures full binary compatibility of the compiled artifacts with the runtime library of the required target JDK.
+The project also uses the [maven-toolchains-plugin](http://maven.apache.org/plugins/maven-toolchains-plugin/), which decouples the
+JDK used to execute Maven and its plugins from the target JDK used for compilation and unit testing.
+This ensures full binary compatibility of the compiled artifacts with the runtime library of the required target JDK.
 
 To build the project, follow these steps:
 
-1. **Install Java 17 JDK**
+1. **Install Java 11 *AND* Java 17 JDKs**
 
-   Download and install a Java 17 JDK, e.g.:
-
-   - [Adoptium Java 17](https://adoptium.net/releases.html?variant=openjdk17)
-   - [Azul Zulu Java 17](https://www.azul.com/downloads/?version=java-17-lts&package=jdk#download-openjdk)
+   Download and install the JDKs from e.g.:
+   - Java 11: https://adoptium.net/releases.html?variant=openjdk11 or https://www.azul.com/downloads/?version=java-11-lts&package=jdk#zulu
+   - Java 17: https://adoptium.net/releases.html?variant=openjdk17 or https://www.azul.com/downloads/?version=java-17-lts&package=jdk#zulu
 
 2. **Configure Maven Toolchains**
 
@@ -359,6 +363,16 @@ To build the project, follow these steps:
    <?xml version="1.0" encoding="UTF8"?>
    <toolchains xmlns="http://maven.apache.org/TOOLCHAINS/1.1.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
        xsi:schemaLocation="http://maven.apache.org/TOOLCHAINS/1.1.0 https://maven.apache.org/xsd/toolchains-1.1.0.xsd">
+     <toolchain>
+       <type>jdk</type>
+       <provides>
+         <version>11</version>
+         <vendor>openjdk</vendor>
+       </provides>
+       <configuration>
+         <jdkHome>[PATH_TO_YOUR_JDK_11]</jdkHome>
+       </configuration>
+     </toolchain>
      <toolchain>
        <type>jdk</type>
        <provides>
@@ -372,7 +386,7 @@ To build the project, follow these steps:
    </toolchains>
    ```
 
-   Replace `[PATH_TO_YOUR_JDK_17]` with the path to your JDK 17 installation.
+   Replace `[PATH_TO_YOUR_JDK_11]` and `[PATH_TO_YOUR_JDK_17]` with the path to your respective JDK installations.
 
 3. **Clone the Repository**
 

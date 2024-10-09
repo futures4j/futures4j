@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [1.1.0] 2024-10-09
+
+### Changed
+- change minimum Java requirement from 17 to 11
+
+
 ## [1.0.0] 2024-10-08
 
 - internal releases

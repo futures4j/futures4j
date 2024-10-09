@@ -1,0 +1,4 @@
+# config file for https://github.com/nektos/act
+-W .github/workflows/build.yml
+
+-j maven-build

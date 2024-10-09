@@ -2,13 +2,36 @@
 <toolchains xmlns="http://maven.apache.org/TOOLCHAINS/1.1.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
    xsi:schemaLocation="http://maven.apache.org/TOOLCHAINS/1.1.0 https://maven.apache.org/xsd/toolchains-1.1.0.xsd">
    <toolchain>
+      <!-- used to run Maven -->
       <type>jdk</type>
       <provides>
-         <version>${env.JAVA_VERSION}</version>
+         <version>17</version>
          <vendor>default</vendor>
       </provides>
       <configuration>
-         <jdkHome>${env.JAVA_HOME}</jdkHome>
+         <jdkHome>${env.JAVA17_HOME}</jdkHome>
+      </configuration>
+   </toolchain>
+   <toolchain>
+      <!-- used for compilation -->
+      <type>jdk</type>
+      <provides>
+         <version>11</version>
+         <vendor>default</vendor>
+      </provides>
+      <configuration>
+         <jdkHome>${env.JAVA11_HOME}</jdkHome>
+      </configuration>
+   </toolchain>
+   <toolchain>
+      <!-- used for tests -->
+      <type>jdk</type>
+      <provides>
+         <version>${env.JAVA_FOR_TESTS_VERSION}</version>
+         <vendor>default</vendor>
+      </provides>
+      <configuration>
+         <jdkHome>${env.JAVA_FOR_TESTS_HOME}</jdkHome>
       </configuration>
    </toolchain>
 </toolchains>

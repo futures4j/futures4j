@@ -111,7 +111,7 @@ if [[ ${projectVersion:-foo} == ${POM_CURRENT_VERSION:-bar} && ${MAY_CREATE_RELE
   echo "  ->           Skipping Tests: ${SKIP_TESTS}"
   echo "  ->               Is Dry-Run: ${DRY_RUN}"
 
-  # workaround for "No toolchain found with specification [version:17, vendor:default]" during release builds
+  # workaround for "No toolchain found with specification [version:11, vendor:default]" during release builds
   cp -f .ci/maven-settings.xml $HOME/.m2/settings.xml
   cp -f .ci/maven-toolchains.xml $HOME/.m2/toolchains.xml
 
