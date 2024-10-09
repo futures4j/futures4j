@@ -45,8 +45,8 @@ import io.github.futures4j.util.ThrowingSupplier;
  * <li><b>Read-Only Views:</b> Allows creating read-only views of a future using {@link #asReadOnly(ReadOnlyMode)}.</li>
  * <li><b>Default Executor:</b> Enables defining a default executor for this future and all subsequent stages via
  * {@link #withDefaultExecutor(Executor)} or {@link Builder#withDefaultExecutor(Executor)}.</li>
- * <li><b>Convenience Methods:</b> Offers additional methods such as {@link #isSuccess()}, {@link #isFailed()},
- * {@link #getNowOptional()}, {@link #getNowOrFallback(Object)}, {@link #getOptional(long, TimeUnit)},
+ * <li><b>Convenience Methods:</b> Offers additional methods such as {@link #completeWith(CompletableFuture)}, {@link #isSuccess()},
+ * {@link #isFailed()}, {@link #getNowOptional()}, {@link #getNowOrFallback(Object)}, {@link #getOptional(long, TimeUnit)},
  * {@link #getOrFallback(Object)}, and {@link #getOrFallback(Object, long, TimeUnit)}.</li>
  * </ul>
  *
@@ -1010,11 +1010,13 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       return toExtendedFuture(super.exceptionally(fn));
    }
 
+   // @Override
    public ExtendedFuture<T> exceptionallyAsync(final Function<Throwable, ? extends T> fn) {
       // emulate exceptionallyAsync introduced in Java 12
       return handleAsync((result, ex) -> ex == null ? result : fn.apply(ex));
    }
 
+   // @Override
    public ExtendedFuture<T> exceptionallyAsync(final Function<Throwable, ? extends T> fn, final Executor executor) {
       // emulate exceptionallyAsync introduced in Java 12
       return handleAsync((result, ex) -> ex == null ? result : fn.apply(ex), executor);
@@ -1028,6 +1030,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       return handleAsync((result, ex) -> ex == null ? result : fn.apply(ex), executor);
    }
 
+   // @Override
    public ExtendedFuture<T> exceptionallyCompose(final Function<Throwable, ? extends CompletionStage<T>> fn) {
       // emulate exceptionallyCompose introduced in Java 12
       return handle((result, ex) -> ex == null ? ExtendedFuture.completedFuture(result) : fn.apply(ex)).thenCompose(f -> f);
@@ -1037,11 +1040,13 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       return handle((result, ex) -> ex == null ? ExtendedFuture.completedFuture(result) : fn.apply(ex)).thenCompose(f -> f);
    }
 
+   // @Override
    public ExtendedFuture<T> exceptionallyComposeAsync(final Function<Throwable, ? extends CompletionStage<T>> fn) {
       // emulate exceptionallyComposeAsync introduced in Java 12
       return handleAsync((result, ex) -> ex == null ? ExtendedFuture.completedFuture(result) : fn.apply(ex)).thenCompose(f -> f);
    }
 
+   // @Override
    public ExtendedFuture<T> exceptionallyComposeAsync(final Function<Throwable, ? extends CompletionStage<T>> fn, final Executor executor) {
       // emulate exceptionallyComposeAsync introduced in Java 12
       return handleAsync((result, ex) -> ex == null ? ExtendedFuture.completedFuture(result) : fn.apply(ex), executor).thenCompose(f -> f);
@@ -1061,6 +1066,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     *
     * @throws IllegalStateException if the task has not yet completed, completed normally, or was cancelled
     */
+   // @Override
    public Throwable exceptionNow() {
       if (!isDone())
          throw new IllegalStateException("Future has not yet completed");
@@ -1478,6 +1484,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     * @return the computed result
     * @throws IllegalStateException if the task has not yet completed or failed
     */
+   // @Override
    public T resultNow() {
       if (!isDone())
          throw new IllegalStateException("Future is not completed yet.");

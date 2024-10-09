@@ -218,7 +218,7 @@ It offers several improvements:
 6. **Additional Convenience Methods**
 
    ```java
-   ExtendedFuture<?> myFuture = ...;
+   ExtendedFuture<String> myFuture = ...;
 
    // Returns true if the future completed normally
    boolean success = myFuture.isSuccess();
@@ -231,7 +231,24 @@ It offers several improvements:
 
    // Returns the completed value or the fallbackValue after waiting; never throws an exception
    T result = myFuture.getOrFallback(10, TimeUnit.SECONDS, fallbackValue);
+
+   // Complete a future with the same value/exception of another future
+   CompletableFuture<String> otherFuture = ...;
+   myFuture.completeWith(otherFuture);
    ```
+
+7. **Backports of Future Methods from Newer Java Versions to Java 11**
+
+   `ExtendedFuture` makes Future methods available in Java 11 that were only introduced in later Java versions, providing equivalent functionality.
+
+   Backported from Java 12:
+   - [CompletionStage#exceptionallyAsync(...)](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/CompletionStage.html#exceptionallyAsync(java.util.function.Function))
+   - [CompletionStage#exceptionallyCompose(...)](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/CompletionStage.html#exceptionallyCompose(java.util.function.Function))
+   - [CompletionStage#exceptionallyComposeAsync(...)](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/CompletionStage.html#exceptionallyComposeAsync(java.util.function.Function))
+
+   Backported from Java 19:
+   - [CompletableFuture#exceptionNow()](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/Future.html#exceptionNow())
+   - [CompletableFuture#resultNow()](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/Future.html#resultNow())
 
 
 ### <a name="Futures"></a>The `Futures` utility class
