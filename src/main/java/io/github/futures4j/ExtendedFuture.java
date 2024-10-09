@@ -226,6 +226,79 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    /**
+    * A holder for new incomplete {@link InterruptibleFuture} instances.
+    * It is used to enable interruptible tasks.
+    *
+    * @param <T> the result type of the future
+    */
+   private static final class NewIncompleteFutureHolder<T> {
+
+      private static final AtomicInteger ID_GENERATOR = new AtomicInteger();
+      private static final ThreadLocal<@Nullable Integer> ID_HOLDER = new ThreadLocal<>();
+      private static final ConcurrentMap<Integer, NewIncompleteFutureHolder<?>> BY_ID = new ConcurrentHashMap<>(4);
+
+      /**
+       * Generates a unique future ID and stores it in the ThreadLocal {@link #ID_HOLDER}.
+       * <p>
+       * The {@link #ID_HOLDER} is used to pass the ID to the {@link ExtendedFuture#newIncompleteFuture()} method,
+       * allowing it to store new incomplete future in the {@link #BY_ID} map via {@link #store(InterruptibleFuture)}.
+       *
+       * @return the generated unique future ID
+       */
+      static int generateFutureId() {
+         final var futureId = ID_GENERATOR.incrementAndGet();
+         ID_HOLDER.set(futureId);
+         return futureId;
+      }
+
+      /**
+       * Retrieves the {@link InterruptibleFuture} associated with the given ID.
+       * <p>
+       * This method is used by interruptible operations (e.g., {@link ExtendedFuture#interruptiblyRun(Runnable)})
+       * to fetch and bind the future to the current executing thread. The thread reference is required for enabling
+       * the {@link InterruptibleFuture#cancel(boolean)} method to interrupt the thread if cancellation is requested.
+       */
+      @SuppressWarnings("unchecked")
+      static <V> InterruptibleFuture<V> lookup(final int futureId) {
+         final var newFuture = BY_ID.remove(futureId);
+         if (newFuture == null) // should never happen
+            throw new IllegalStateException("No future present with id " + futureId);
+
+         // remove obsolete incomplete futures (should actually not happen, just a precaution to avoid potential memory leaks)
+         if (!BY_ID.isEmpty()) {
+            final var now = System.currentTimeMillis();
+            BY_ID.values().removeIf(holder -> now > holder.expiresOn);
+         }
+
+         return (InterruptibleFuture<V>) newFuture.future;
+      }
+
+      /**
+       * Used by {@link ExtendedFuture#newIncompleteFuture()} to store newly created incomplete stages in the {@link #BY_ID} map for later
+       * retrieval via {@link #lookup(int)} by interruptible operations (e.g., {@link ExtendedFuture#interruptiblyRun(Runnable)}).
+       * <p>
+       * This method requires that {@link #generateFutureId()} was called first as this method retrieves the future's ID from the
+       * ThreadLocal {@link #ID_HOLDER}.
+       */
+      static void store(final InterruptibleFuture<?> newFuture) {
+         final var futureId = ID_HOLDER.get();
+         ID_HOLDER.remove();
+         // potentially null for cases where #newIncompleteFuture() is used through code paths by super class not handled by this subclass
+         if (futureId != null) {
+            BY_ID.put(futureId, new NewIncompleteFutureHolder<>(newFuture, System.currentTimeMillis() + 5_000));
+         }
+      }
+
+      final InterruptibleFuture<T> future;
+      final long expiresOn;
+
+      NewIncompleteFutureHolder(final InterruptibleFuture<T> future, final long expiresOn) {
+         this.future = future;
+         this.expiresOn = expiresOn;
+      }
+   }
+
+   /**
     * Modes for creating a read-only view of an {@link ExtendedFuture}.
     */
    public enum ReadOnlyMode {
@@ -303,79 +376,6 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
             }
          });
          return this;
-      }
-   }
-
-   /**
-    * A holder for new incomplete {@link InterruptibleFuture} instances.
-    * It is used to enable interruptible tasks.
-    *
-    * @param <T> the result type of the future
-    */
-   private static final class NewIncompleteFutureHolder<T> {
-
-      private static final AtomicInteger ID_GENERATOR = new AtomicInteger();
-      private static final ThreadLocal<@Nullable Integer> ID_HOLDER = new ThreadLocal<>();
-      private static final ConcurrentMap<Integer, NewIncompleteFutureHolder<?>> BY_ID = new ConcurrentHashMap<>(4);
-
-      /**
-       * Retrieves the {@link InterruptibleFuture} associated with the given ID.
-       * <p>
-       * This method is used by interruptible operations (e.g., {@link ExtendedFuture#interruptiblyRun(Runnable)})
-       * to fetch and bind the future to the current executing thread. The thread reference is required for enabling
-       * the {@link InterruptibleFuture#cancel(boolean)} method to interrupt the thread if cancellation is requested.
-       */
-      @SuppressWarnings("unchecked")
-      static <V> InterruptibleFuture<V> lookup(final int futureId) {
-         final var newFuture = BY_ID.remove(futureId);
-         if (newFuture == null) // should never happen
-            throw new IllegalStateException("No future present with id " + futureId);
-
-         // remove obsolete incomplete futures (should actually not happen, just a precaution to avoid potential memory leaks)
-         if (!BY_ID.isEmpty()) {
-            final var now = System.currentTimeMillis();
-            BY_ID.values().removeIf(holder -> now > holder.expiresOn);
-         }
-
-         return (InterruptibleFuture<V>) newFuture.future;
-      }
-
-      /**
-       * Used by {@link ExtendedFuture#newIncompleteFuture()} to store newly created incomplete stages in the {@link #BY_ID} map for later
-       * retrieval via {@link #lookup(int)} by interruptible operations (e.g., {@link ExtendedFuture#interruptiblyRun(Runnable)}).
-       * <p>
-       * This method requires that {@link #generateFutureId()} was called first as this method retrieves the future's ID from the
-       * ThreadLocal {@link #ID_HOLDER}.
-       */
-      static void store(final InterruptibleFuture<?> newFuture) {
-         final var futureId = ID_HOLDER.get();
-         ID_HOLDER.remove();
-         // potentially null for cases where #newIncompleteFuture() is used through code paths by super class not handled by this subclass
-         if (futureId != null) {
-            BY_ID.put(futureId, new NewIncompleteFutureHolder<>(newFuture, System.currentTimeMillis() + 5_000));
-         }
-      }
-
-      /**
-       * Generates a unique future ID and stores it in the ThreadLocal {@link #ID_HOLDER}.
-       * <p>
-       * The {@link #ID_HOLDER} is used to pass the ID to the {@link ExtendedFuture#newIncompleteFuture()} method,
-       * allowing it to store new incomplete future in the {@link #BY_ID} map via {@link #store(InterruptibleFuture)}.
-       *
-       * @return the generated unique future ID
-       */
-      static int generateFutureId() {
-         final var futureId = ID_GENERATOR.incrementAndGet();
-         ID_HOLDER.set(futureId);
-         return futureId;
-      }
-
-      final InterruptibleFuture<T> future;
-      final long expiresOn;
-
-      NewIncompleteFutureHolder(final InterruptibleFuture<T> future, final long expiresOn) {
-         this.future = future;
-         this.expiresOn = expiresOn;
       }
    }
 
@@ -757,13 +757,6 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       final var throwOnMutationAttempt = readOnlyMode.equals(ReadOnlyMode.THROW_ON_MUTATION);
       return new WrappingFuture<>(this, false, interruptibleStages, defaultExecutor) {
 
-         private WrappingFuture<T> handleModificationAttempt() {
-            if (throwOnMutationAttempt)
-               throw new UnsupportedOperationException(this + " is read-only.");
-            LOG.log(Level.WARNING, "Attempted to alter a read-only future: " + this);
-            return this;
-         }
-
          @Override
          public boolean cancel(final boolean mayInterruptIfRunning) {
             handleModificationAttempt();
@@ -805,6 +798,13 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          @Override
          public ExtendedFuture<T> completeOnTimeout(final T value, final long timeout, final TimeUnit unit) {
             return handleModificationAttempt();
+         }
+
+         private WrappingFuture<T> handleModificationAttempt() {
+            if (throwOnMutationAttempt)
+               throw new UnsupportedOperationException(this + " is read-only.");
+            LOG.log(Level.WARNING, "Attempted to alter a read-only future: " + this);
+            return this;
          }
 
          @Override
