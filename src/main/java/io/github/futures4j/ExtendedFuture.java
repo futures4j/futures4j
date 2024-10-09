@@ -1838,6 +1838,10 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       return toExtendedFuture(super.thenCompose(fn));
    }
 
+   public <U> ExtendedFuture<U> thenCompose(final ThrowingFunction<? super T, ? extends CompletionStage<U>, ?> fn) {
+      return thenCompose((Function<? super T, ? extends CompletionStage<U>>) fn);
+   }
+
    @Override
    public <U> ExtendedFuture<U> thenComposeAsync(final Function<? super T, ? extends CompletionStage<U>> fn) {
       if (interruptibleStages) {
@@ -1854,6 +1858,15 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          return toExtendedFuture(super.thenComposeAsync(result -> interruptiblyThenCompose(fId, result, fn), executor));
       }
       return toExtendedFuture(super.thenComposeAsync(fn, executor));
+   }
+
+   public <U> ExtendedFuture<U> thenComposeAsync(final ThrowingFunction<? super T, ? extends CompletionStage<U>, ?> fn) {
+      return thenComposeAsync((Function<? super T, ? extends CompletionStage<U>>) fn);
+   }
+
+   public <U> ExtendedFuture<U> thenComposeAsync(final ThrowingFunction<? super T, ? extends CompletionStage<U>, ?> fn,
+         final Executor executor) {
+      return thenComposeAsync((Function<? super T, ? extends CompletionStage<U>>) fn, executor);
    }
 
    @Override
