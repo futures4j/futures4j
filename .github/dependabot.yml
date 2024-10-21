@@ -30,3 +30,5 @@ updates:
   - pinned
   - dependencies
   - mvn
+  ignore:
+  - dependency-name: "net.sf.jstuff:*" # newer versions require Java 17
