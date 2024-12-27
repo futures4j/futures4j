@@ -3,6 +3,7 @@
 # SPDX-FileCopyrightText: © Sebastian Thomschke
 # SPDX-FileContributor: Sebastian Thomschke: initial configuration
 # SPDX-License-Identifier: EPL-2.0
+# SPDX-ArtifactOfProjectHomePage: https://github.com/futures4j/futures4j
 
 #####################
 # Script init

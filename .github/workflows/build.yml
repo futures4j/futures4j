@@ -1,11 +1,14 @@
 # SPDX-FileCopyrightText: © Sebastian Thomschke
 # SPDX-FileContributor: Sebastian Thomschke: initial configuration
 # SPDX-License-Identifier: EPL-2.0
+# SPDX-ArtifactOfProjectHomePage: https://github.com/futures4j/futures4j
 #
 # https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions
 name: Build
 
 on:
+  schedule:
+    - cron: '0 15 1 * *'
   push:
     branches-ignore:  # build all branches except:
     - 'dependabot/**'  # prevent GHA triggered twice (once for commit to the branch and once for opening/syncing the PR)
@@ -72,7 +75,7 @@ jobs:
         - java: 21
           may_create_release: false
           experimental: false
-        - java: 22
+        - java: 23
           may_create_release: false
           experimental: false
 
