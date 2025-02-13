@@ -967,12 +967,18 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       return exceptionally((Function<Throwable, ? extends T>) fn);
    }
 
+   /**
+    * This method emulates the {@link CompletableFuture}'s exceptionallyAsync method introduced in Java 12.
+    */
    // @Override
    public ExtendedFuture<T> exceptionallyAsync(final Function<Throwable, ? extends T> fn) {
       // emulate exceptionallyAsync introduced in Java 12
       return handleAsync((result, ex) -> ex == null ? result : fn.apply(ex));
    }
 
+   /**
+    * This method emulates the {@link CompletableFuture}'s exceptionallyAsync method introduced in Java 12.
+    */
    // @Override
    public ExtendedFuture<T> exceptionallyAsync(final Function<Throwable, ? extends T> fn, final Executor executor) {
       // emulate exceptionallyAsync introduced in Java 12
@@ -987,6 +993,9 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       return exceptionallyAsync((Function<Throwable, ? extends T>) fn, executor);
    }
 
+   /**
+    * This method emulates the {@link CompletableFuture}'s exceptionallyCompose method introduced in Java 12.
+    */
    // @Override
    public ExtendedFuture<T> exceptionallyCompose(final Function<Throwable, ? extends CompletionStage<T>> fn) {
       // emulate exceptionallyCompose introduced in Java 12
@@ -997,12 +1006,18 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       return exceptionallyCompose((Function<Throwable, ? extends CompletionStage<T>>) fn);
    }
 
+   /**
+    * This method emulates the {@link CompletableFuture}'s exceptionallyComposeAsync method introduced in Java 12.
+    */
    // @Override
    public ExtendedFuture<T> exceptionallyComposeAsync(final Function<Throwable, ? extends CompletionStage<T>> fn) {
       // emulate exceptionallyComposeAsync introduced in Java 12
       return handleAsync((result, ex) -> ex == null ? ExtendedFuture.completedFuture(result) : fn.apply(ex)).thenCompose(f -> f);
    }
 
+   /**
+    * This method emulates the {@link CompletableFuture}'s exceptionallyComposeAsync method introduced in Java 12.
+    */
    // @Override
    public ExtendedFuture<T> exceptionallyComposeAsync(final Function<Throwable, ? extends CompletionStage<T>> fn, final Executor executor) {
       // emulate exceptionallyComposeAsync introduced in Java 12
