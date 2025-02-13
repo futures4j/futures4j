@@ -18,8 +18,8 @@
    - [The **ExtendedFuture** class](#ExtendedFuture)
    - [The **Futures** utility class](#Futures)
    - [The **CompletionState** enum](#CompletionState)
-   - [Building from sources](#building)
-4. [License](#license)
+4. [Building from sources](#building)
+5. [License](#license)
 
 
 ## <a name="what-is-it"></a>What is it?
@@ -356,7 +356,7 @@ switch (future.state()) {
 ```
 
 
-### <a id="building"></a>Building from Sources
+## <a id="building"></a>Building from Sources
 
 To ensure reproducible builds, this [Maven](https://books.sonatype.com/mvnref-book/reference/index.html) project inherits from the
 [vegardit-maven-parent](https://github.com/vegardit/vegardit-maven-parent) project, which declares fixed versions and sensible
@@ -386,7 +386,7 @@ To build the project, follow these steps:
        <type>jdk</type>
        <provides>
          <version>11</version>
-         <vendor>openjdk</vendor>
+         <vendor>default</vendor>
        </provides>
        <configuration>
          <jdkHome>[PATH_TO_YOUR_JDK_11]</jdkHome>
@@ -396,7 +396,7 @@ To build the project, follow these steps:
        <type>jdk</type>
        <provides>
          <version>17</version>
-         <vendor>openjdk</vendor>
+         <vendor>default</vendor>
        </provides>
        <configuration>
          <jdkHome>[PATH_TO_YOUR_JDK_17]</jdkHome>
