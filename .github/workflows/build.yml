@@ -180,6 +180,15 @@ jobs:
         if-no-files-found: error
 
 
+    - name: Upload test results to Codecov
+      uses: codecov/test-results-action@v1
+      if: ${{ !cancelled() && !env.ACT }}
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: ${{ github.workspace }}/**/target/surefire-reports/TEST-*.xml
+        flags: jdk${{ matrix.java }}
+
+
     ##################################################
     # Setup SSH debug session
     ##################################################
