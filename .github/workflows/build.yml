@@ -15,19 +15,26 @@ on:
     tags-ignore:  # don't build tags
     - '**'
     paths-ignore:
+    - '.act*'
     - '**/*.adoc'
     - '**/*.md'
     - '.editorconfig'
     - '.git*'
     - '.github/*.yml'
+    - '.github/ISSUE_TEMPLATE/*'
     - '.github/workflows/stale.yml'
+    - 'codecov.yml'
   pull_request:
     paths-ignore:
+    - '.act*'
     - '**/*.adoc'
     - '**/*.md'
     - '.editorconfig'
     - '.git*'
+    - '.github/ISSUE_TEMPLATE/*'
     - '.github/*.yml'
+    - '.github/workflows/stale.yml'
+    - 'codecov.yml'
   workflow_dispatch:
     # https://github.blog/changelog/2020-07-06-github-actions-manual-triggers-with-workflow_dispatch/
     inputs:
@@ -159,26 +166,18 @@ jobs:
         SONATYPE_CENTRAL_USER: ${{ vars.SONATYPE_CENTRAL_USER }}
         SONATYPE_CENTRAL_TOKEN: ${{ secrets.SONATYPE_CENTRAL_TOKEN }}
       run: |
-        set -eu
-
         bash .ci/build.sh ${{ github.event.inputs.additional_maven_args }} \
           -Djava.version.unit-tests=${{ matrix.java }}
 
-        if find . -path "*/target/site/jacoco/jacoco.xml" | grep -q .; then
-          echo 'has_jacoco_results=true' >> $GITHUB_OUTPUT
-        fi
 
-
-    - name: Publish test coverage to codeclimate.com
-      uses: paambaati/codeclimate-action@v9  # https://github.com/paambaati/codeclimate-action
-      if: ${{ matrix.may_create_release && steps.maven-build.outputs.has_jacoco_results && !env.ACT }}
-      env:
-        CC_TEST_REPORTER_ID: ${{ secrets.CODECLIMATE_TEST_REPORTER_ID }}
-        JACOCO_SOURCE_PATH: "${{ github.workspace }}/src/main/java"
+    - name: Collect coverage reports
+      uses: actions/upload-artifact@v4
+      if: (github.ref_name == 'main' || github.event_name == 'pull_request') && !env.ACT
       with:
-        coverageLocations:  |
-          ${{ github.workspace }}/target/site/jacoco/jacoco.xml:jacoco
-          ${{ github.workspace }}/target/site/jacoco-it/jacoco.xml:jacoco
+        name: coverage-java${{ matrix.java }}
+        include-hidden-files: true
+        path: ${{ github.workspace }}/**/target/site/jacoco*/jacoco.xml
+        if-no-files-found: error
 
 
     ##################################################
@@ -211,6 +210,53 @@ jobs:
       if: always() && steps.DEBUG_SSH_SESSSION_CHECK.outputs.start_ssh_session
       with:
         limit-access-to-actor: ${{ inputs.debug-with-ssh-only-for-actor }}
+
+
+  ###########################################################
+  publish-coverage:
+  ###########################################################
+    needs: [maven-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: (github.ref_name == 'main' || github.event_name == 'pull_request') && !github.event.act
+    steps:
+    - name: Git Checkout  # required to avoid https://docs.codecov.com/docs/error-reference#unusable-reports
+      uses: actions/checkout@v4  # https://github.com/actions/checkout
+
+
+    - name: Download coverage reports
+      uses: actions/download-artifact@v4
+      with:
+        pattern: coverage-*
+        path: coverage
+
+
+    - name: List coverage reports
+      run: find . -name jacoco.xml 
+
+
+    - name: Publish unit-test coverage
+      uses: codecov/codecov-action@v5  # https://github.com/codecov/codecov-action
+      with:
+        slug: ${{ github.repository }}
+        name: unit-coverage
+        flags: unit-tests
+        disable_search: true
+        files: coverage/**/jacoco/jacoco.xml
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+
+    - name: Publish integration-test coverage
+      uses: codecov/codecov-action@v5  # https://github.com/codecov/codecov-action
+      with:
+        slug: ${{ github.repository }}
+        name: integration-coverage
+        flags: integration-tests
+        disable_search: true
+        files: coverage/**/jacoco-it/jacoco.xml
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
 
   ###########################################################

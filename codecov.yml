@@ -1,0 +1,22 @@
+# https://docs.codecov.com/docs/codecovyml-reference
+# https://json.schemastore.org/codecov.json
+codecov:
+  branch: main
+  require_ci_to_pass: true
+  notify:
+    wait_for_ci: true
+
+coverage:
+  precision: 2
+  round: down
+  range: "70...100"  # https://docs.codecov.com/docs/codecovyml-reference#coveragerange
+  status:
+    project:
+      default:
+        threshold: "0%"
+        flags: ["unit-tests"]
+        only_pulls: true
+      integration:
+        flags: ["integration-tests"]
+        threshold: "0.2%"  # https://docs.codecov.com/docs/commit-status#threshold
+        only_pulls: true
