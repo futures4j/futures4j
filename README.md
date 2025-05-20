@@ -263,7 +263,7 @@ It simplifies handling asynchronous computations by offering functionality to ca
    - Cancel multiple futures:
 
      ```java
-     Futures.combine(future1, future2, future3).cancelAll(true);
+     Futures.combine(future1, future2, future3).toList().cancelAll(true);
      ```
 
    - Propagate cancellations from one `CompletableFuture` to others:
