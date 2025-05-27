@@ -177,7 +177,7 @@ jobs:
         name: coverage-java${{ matrix.java }}
         include-hidden-files: true
         path: ${{ github.workspace }}/**/target/site/jacoco*/jacoco.xml
-        if-no-files-found: error
+        if-no-files-found: ${{ matrix.may_create_release && 'warn' || 'error' }}
 
 
     - name: Upload test results to Codecov
