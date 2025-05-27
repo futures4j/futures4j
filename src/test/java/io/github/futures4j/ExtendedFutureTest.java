@@ -31,8 +31,10 @@ import java.util.function.Supplier;
 
 import org.eclipse.jdt.annotation.Nullable;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import io.github.futures4j.ExtendedFuture.InterruptibleFuturesTracker;
 import io.github.futures4j.ExtendedFuture.ReadOnlyMode;
 import io.github.futures4j.util.ThrowingBiConsumer;
 import io.github.futures4j.util.ThrowingBiFunction;
@@ -70,10 +72,27 @@ class ExtendedFutureTest extends AbstractFutureTest {
    }
 
    final TrackingExecutor executor = new TrackingExecutor();
+   int trackedFuturesCountBeforeTest;
+
+   @BeforeEach
+   void setup() {
+      InterruptibleFuturesTracker.purgeStaleEntries();
+      trackedFuturesCountBeforeTest = InterruptibleFuturesTracker.BY_ID.size();
+   }
 
    @AfterEach
-   void tearDown() {
+   void tearDown() throws InterruptedException {
       executor.shutdown();
+
+      final long maxTime = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+      while (!InterruptibleFuturesTracker.BY_ID.isEmpty() && System.nanoTime() < maxTime) {
+         System.gc(); // encourage the GC to clear WeakReferences
+         Thread.sleep(200); // short back-off before re-checking
+         InterruptibleFuturesTracker.purgeStaleEntries();
+      }
+
+      assertThat(InterruptibleFuturesTracker.BY_ID).as("InterruptibleFuturesTracker.BY_ID must not have new entries").hasSize(
+         trackedFuturesCountBeforeTest);
    }
 
    @Test
@@ -1057,6 +1076,53 @@ class ExtendedFutureTest extends AbstractFutureTest {
          assertThat(executions).hasValue(6);
          assertThat(executor.getExecutions()).isEqualTo(2);
       }
+   }
+
+   @Test
+   void testLongRunningStages() throws Exception {
+      final AtomicInteger counter = new AtomicInteger();
+      final long t0 = System.nanoTime();
+
+      ExtendedFuture.runAsync(() -> { // Stage 1
+         assertThat(counter.getAndIncrement()).isZero(); // must be 0 → first
+         Thread.sleep(5_000);
+      }).thenRun(() -> { // Stage 2
+         assertThat(counter.getAndIncrement()).isOne(); // must be 1 → second
+         Thread.sleep(5_000);
+      }).thenRun(() -> { // Stage 3
+         assertThat(counter.getAndIncrement()).isEqualTo(2); // third
+      }).get();
+
+      final long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0);
+      assertThat(elapsedMs).isBetween(10_000L, 11_500L);
+      assertThat(counter).hasValue(3);
+   }
+
+   @Test
+   void trackerEntryIsRemovedWhenStageCancelledEarly() throws Exception {
+      assertThat(InterruptibleFuturesTracker.BY_ID).isEmpty();
+
+      final ExecutorService exec = Executors.newSingleThreadExecutor();
+      final CountDownLatch latch = new CountDownLatch(1);
+
+      // stage 0 blocks on the latch
+      final var fut0 = ExtendedFuture.runAsync(() -> {
+         latch.await();
+      }, exec).withInterruptibleStages(true);
+
+      // stage 1 will never start because we cancel it immediately
+      final var fut1 = fut0.thenRunAsync(() -> { /* never reached */ });
+
+      assertThat(InterruptibleFuturesTracker.BY_ID).hasSize(trackedFuturesCountBeforeTest + 1);
+
+      // cancel before stage 1 gets scheduled
+      fut1.cancel(true);
+
+      // give cancel-propagation a moment
+      Thread.sleep(200);
+
+      latch.countDown();
+      exec.shutdownNow();
    }
 
    @Test
