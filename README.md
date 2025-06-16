@@ -1,10 +1,11 @@
 # futures4j - Enhancements for Java's Futures
 
 [![Build Status](https://img.shields.io/github/actions/workflow/status/futures4j/futures4j/build.yml?logo=github)](https://github.com/futures4j/futures4j/actions/workflows/build.yml)
-[![Javadoc](https://img.shields.io/badge/javadoc-online-green)](https://futures4j.github.io/futures4j/javadoc/)
-[![Contributor Covenant](https://img.shields.io/badge/contributor%20covenant-v2.1%20adopted-ff69b4.svg)](CODE_OF_CONDUCT.md)
 [![codecov](https://codecov.io/github/futures4j/futures4j/graph/badge.svg?token=X4WI6H1LTK)](https://codecov.io/github/futures4j/futures4j)
+[![Contributor Covenant](https://img.shields.io/badge/contributor%20covenant-v2.1%20adopted-ff69b4.svg)](CODE_OF_CONDUCT.md)
+[![Javadoc](https://img.shields.io/badge/javadoc-online-green)](https://futures4j.github.io/futures4j/javadoc/)
 [![License](https://img.shields.io/github/license/futures4j/futures4j.svg?color=blue)](LICENSE.txt)
+[![Changelog](https://img.shields.io/badge/History-changelog-blue)](CHANGELOG.md)
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.futures4j/futures4j)](https://central.sonatype.com/artifact/io.github.futures4j/futures4j)
 
 

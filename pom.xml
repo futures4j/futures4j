@@ -3,6 +3,10 @@
 SPDX-FileCopyrightText: © Sebastian Thomschke
 SPDX-FileContributor: Sebastian Thomschke: initial configuration
 SPDX-License-Identifier: EPL-2.0
+SPDX-ArtifactOfProjectHomePage: https://github.com/futures4j/futures4j
+
+check for new dependency/plugin updates using:
+  mvn -U -ntp versions:display-dependency-updates versions:display-plugin-updates
 -->
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
 
@@ -19,8 +23,7 @@ SPDX-License-Identifier: EPL-2.0
   <version>1.1.2-SNAPSHOT</version>
 
   <name>futures4j</name>
-  <description>A small dependency-free utility library providing enhancements
-    and extensions for working with Java Futures.</description>
+  <description>A small dependency-free utility library providing enhancements and extensions for working with Java Futures</description>
   <url>https://github.com/futures4j/futures4j</url>
   <inceptionYear>2024</inceptionYear>
   <organization>
@@ -70,6 +73,7 @@ SPDX-License-Identifier: EPL-2.0
   <properties>
     <java.version>11</java.version>
     <skip.japicmp.cmp>true</skip.japicmp.cmp>
+    <assertj.version>3.27.3</assertj.version>
   </properties>
 
 
@@ -110,7 +114,7 @@ SPDX-License-Identifier: EPL-2.0
     <dependency>
       <groupId>org.assertj</groupId>
       <artifactId>assertj-core</artifactId>
-      <version>3.27.3</version>
+      <version>${assertj.version}</version>
       <scope>test</scope>
     </dependency>
     <dependency>
