@@ -42,14 +42,14 @@ on:
       extra-maven-args:
         description: "Additional command-line arguments to append to all Maven invocations"
         required: false
-        default: ""
+        type: string
       debug-with-ssh:
         description: "Start an SSH session for debugging purposes at the end of the build:"
         default: never
         type: choice
         options: [ always, on_failure, on_failure_or_cancelled, never ]
       debug-with-ssh-only-for-actor:
-        description: "Limit access to the SSH session to the GitHub user that triggered the job."
+        description: "Restrict SSH debug session access to the GitHub user who triggered the workflow"
         default: true
         type: boolean
       debug-with-ssh-only-jobs-matching:
@@ -74,8 +74,7 @@ jobs:
 
       before-build: |
         if [[ $OSTYPE == linux* ]] && ! hash ping &>/dev/null; then
-          sudo apt-get update;
-          sudo apt-get install iputils-ping
+          (set -x; sudo apt-get install iputils-ping)
         fi
 
       debug-with-ssh: ${{ inputs.debug-with-ssh }}

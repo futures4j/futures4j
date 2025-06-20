@@ -9,17 +9,17 @@
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.futures4j/futures4j)](https://central.sonatype.com/artifact/io.github.futures4j/futures4j)
 
 
-## Table of Contents
+**Feedback and high-quality pull requests are highly welcome!**
 
 1. [What is it?](#what-is-it)
-2. [Java Compatibility](#compatibility)
-3. [Usage](#usage)
+1. [Java Compatibility](#compatibility)
+1. [Usage](#usage)
    - [Binaries](#binaries)
    - [The **ExtendedFuture** class](#ExtendedFuture)
    - [The **Futures** utility class](#Futures)
    - [The **CompletionState** enum](#CompletionState)
-4. [Building from sources](#building)
-5. [License](#license)
+1. [Building from sources](#building)
+1. [License](#license)
 
 
 ## <a name="what-is-it"></a>What is it?
@@ -421,7 +421,7 @@ To build the project, follow these steps:
 
 ## <a name="license"></a>License
 
-All files are released under the [Eclipse Public License 2.0](LICENSE.txt).
+If not otherwise specified (see below), files in this repository fall under the [Eclipse Public License 2.0](LICENSE.txt).
 
 Individual files contain the following tag instead of the full license text:
 ```
@@ -429,3 +429,9 @@ SPDX-License-Identifier: EPL-2.0
 ```
 
 This enables machine processing of license information based on the SPDX License Identifiers that are available here: https://spdx.org/licenses/.
+
+An exception is made for:
+1. files in readable text which contain their own license information, or
+2. files in a directory containing a separate `LICENSE.txt` file, or
+3. files where an accompanying file exists in the same directory with a `.LICENSE.txt` suffix added to the base-name of the original file.
+   For example `foobar.js` is may be accompanied by a `foobar.LICENSE.txt` license file.
