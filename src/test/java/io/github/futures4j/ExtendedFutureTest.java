@@ -41,6 +41,7 @@ import io.github.futures4j.util.ThrowingBiFunction;
 import io.github.futures4j.util.ThrowingConsumer;
 import io.github.futures4j.util.ThrowingFunction;
 import io.github.futures4j.util.ThrowingRunnable;
+import net.sf.jstuff.core.concurrent.Threads;
 import net.sf.jstuff.core.ref.MutableRef;
 
 /**
@@ -206,6 +207,14 @@ class ExtendedFutureTest extends AbstractFutureTest {
       assertThat(readOnlyFuture.cancel(true)).isFalse();
       assertThat(readOnlyFuture.completeExceptionally(new RuntimeException("Test Exception"))).isFalse();
 
+      readOnlyFuture.completeWith(CompletableFuture.completedFuture("Hello"));
+      Threads.sleep(50);
+      assertThat(readOnlyFuture).isNotCompleted();
+
+      readOnlyFuture.orTimeout(10, TimeUnit.MILLISECONDS);
+      Threads.sleep(50);
+      assertThat(readOnlyFuture).isNotCompleted();
+
       // ensure read-only future can still perform non-mutating operations like get() or join()
       originalFuture.complete("World");
       assertThat(readOnlyFuture.join()).isEqualTo("World");
@@ -226,6 +235,14 @@ class ExtendedFutureTest extends AbstractFutureTest {
          .hasMessageContaining("is read-only");
 
       assertThatThrownBy(() -> readOnlyFuture.completeExceptionally(new RuntimeException("Test Exception"))) //
+         .isInstanceOf(UnsupportedOperationException.class) //
+         .hasMessageContaining("is read-only");
+
+      assertThatThrownBy(() -> readOnlyFuture.completeWith(CompletableFuture.completedFuture("Hello"))) //
+         .isInstanceOf(UnsupportedOperationException.class) //
+         .hasMessageContaining("is read-only");
+
+      assertThatThrownBy(() -> readOnlyFuture.orTimeout(10, TimeUnit.MILLISECONDS)) //
          .isInstanceOf(UnsupportedOperationException.class) //
          .hasMessageContaining("is read-only");
 

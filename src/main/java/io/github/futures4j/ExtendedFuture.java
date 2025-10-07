@@ -819,6 +819,16 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
             return handleModificationAttempt();
          }
 
+         @Override
+         public ExtendedFuture<T> completeWith(final CompletableFuture<? extends T> future) {
+            return handleModificationAttempt();
+         }
+
+         @Override
+         public ExtendedFuture<T> orTimeout(final long timeout, final TimeUnit unit) {
+            return handleModificationAttempt();
+         }
+
          private WrappingFuture<T> handleModificationAttempt() {
             if (throwOnMutationAttempt)
                throw new UnsupportedOperationException(this + " is read-only.");
