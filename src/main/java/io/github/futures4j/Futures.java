@@ -552,6 +552,12 @@ public final class Futures {
       return combiner;
    }
 
+   private static boolean determineCancellationIntent(final CompletableFuture<?> source) {
+      if (source instanceof ExtendedFuture)
+         return ((ExtendedFuture<?>) source).getCancelIntentOrDefault(false);
+      return false;
+   }
+
    /**
     * Propagates the cancellation of a {@link CompletableFuture} to other {@link Future}s.
     * <p>
@@ -566,10 +572,11 @@ public final class Futures {
          return;
       from.whenComplete((result, t) -> {
          if (t instanceof CancellationException) {
+            final boolean mayInterrupt = determineCancellationIntent(from);
             for (final var f : to) {
                if (f != null) {
                   try {
-                     f.cancel(true);
+                     f.cancel(mayInterrupt);
                   } catch (final Exception ex) {
                      LOG.log(Level.ERROR, ex.getMessage(), ex);
                   }
@@ -593,7 +600,12 @@ public final class Futures {
          return;
       from.whenComplete((result, ex) -> {
          if (ex instanceof CancellationException) {
-            to.cancel(true);
+            final boolean mayInterrupt = determineCancellationIntent(from);
+            try {
+               to.cancel(mayInterrupt);
+            } catch (final Exception cancelEx) {
+               LOG.log(Level.ERROR, cancelEx.getMessage(), cancelEx);
+            }
          }
       });
    }
@@ -612,10 +624,11 @@ public final class Futures {
          return;
       from.whenComplete((result, t) -> {
          if (t instanceof CancellationException) {
+            final boolean mayInterrupt = determineCancellationIntent(from);
             for (final var f : to) {
                if (f != null) {
                   try {
-                     f.cancel(true);
+                     f.cancel(mayInterrupt);
                   } catch (final Exception ex) {
                      LOG.log(Level.ERROR, ex.getMessage(), ex);
                   }

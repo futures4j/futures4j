@@ -368,6 +368,56 @@ class FuturesTest extends AbstractFutureTest {
    }
 
    @Test
+   void testForwardCancellation_PreservesMayInterruptFlag() throws InterruptedException {
+      class TrackingFuture implements Future<Object> {
+
+         volatile @Nullable Boolean mayInterrupt;
+         private volatile boolean cancelled;
+
+         @Override
+         public boolean cancel(final boolean mayInterruptIfRunning) {
+            cancelled = true;
+            mayInterrupt = Boolean.valueOf(mayInterruptIfRunning);
+            return true;
+         }
+
+         @Override
+         public boolean isCancelled() {
+            return cancelled;
+         }
+
+         @Override
+         public boolean isDone() {
+            return cancelled;
+         }
+
+         @Override
+         public Object get() {
+            throw new UnsupportedOperationException("Not implemented");
+         }
+
+         @Override
+         public Object get(final long timeout, final TimeUnit unit) {
+            throw new UnsupportedOperationException("Not implemented");
+         }
+      }
+
+      final var sourceFuture = new ExtendedFuture<>();
+      final var trackingFuture = new TrackingFuture();
+
+      Futures.forwardCancellation(sourceFuture, trackingFuture);
+
+      sourceFuture.cancel(false);
+
+      for (int i = 0; i < 50 && trackingFuture.mayInterrupt == null; i++) {
+         Thread.sleep(10);
+      }
+
+      assertThat(trackingFuture.isCancelled()).isTrue();
+      assertThat(trackingFuture.mayInterrupt).isFalse();
+   }
+
+   @Test
    void testForwardCancellation_Array() {
       final var sourceFuture = new ExtendedFuture<>();
       final var futures = new ArrayList<ExtendedFuture<?>>();

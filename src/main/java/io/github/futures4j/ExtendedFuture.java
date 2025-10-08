@@ -22,6 +22,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
@@ -322,20 +323,20 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     * (useful when a non-interruptible wrapper masks the flag for its own cancellation but we still want upstream
     * propagation to honor the caller's intent).
     */
-   private boolean hasCancelIntent;
-   private boolean cancelIntentMayInterrupt;
+   private final AtomicReference<@Nullable Boolean> cancelIntentMayInterrupt = new AtomicReference<>();
 
    private void rememberCancelIntentIfAbsent(final boolean mayInterruptIfRunning) {
-      if (!hasCancelIntent) {
-         hasCancelIntent = true;
-         cancelIntentMayInterrupt = mayInterruptIfRunning;
-      }
+      cancelIntentMayInterrupt.compareAndSet(null, Boolean.valueOf(mayInterruptIfRunning));
    }
 
    private boolean resolveCancelIntentOrDefault(final boolean defaultMayInterruptIfRunning) {
-      final boolean result = hasCancelIntent ? cancelIntentMayInterrupt : defaultMayInterruptIfRunning;
-      hasCancelIntent = false;
-      return result;
+      final var intent = cancelIntentMayInterrupt.getAndSet(null);
+      return intent == null ? defaultMayInterruptIfRunning : intent.booleanValue();
+   }
+
+   boolean getCancelIntentOrDefault(final boolean defaultMayInterruptIfRunning) {
+      final var intent = cancelIntentMayInterrupt.get();
+      return intent == null ? defaultMayInterruptIfRunning : intent.booleanValue();
    }
 
    /**
@@ -917,6 +918,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       if (isDone())
          return isCancelled();
 
+      rememberCancelIntentIfAbsent(mayInterruptIfRunning);
       final boolean cancelled = super.cancel(mayInterruptIfRunning && isInterruptible());
       if (cancelled && !cancellablePrecedingStages.isEmpty()) {
          // Use the original caller intent if captured by a wrapper; otherwise, use the given flag

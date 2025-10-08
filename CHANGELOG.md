@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - some delegation methods are missing on internal `ExtendedFuture#WrappingFuture` class
 - `Combiner#toMap` ignores null results from futures
 - ClassCastException when re-wrapping interruptible futures via `asCancellableByDependents`, `withInterruptibleStages`, `withDefaultExecutor`
+- `mayInterruptIfRunning` not preserved in forwarded cancellation
 
 
 ## [1.1.1] 2025-05-01
