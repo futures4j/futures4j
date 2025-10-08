@@ -354,6 +354,28 @@ class FuturesTest extends AbstractFutureTest {
    }
 
    @Test
+   void testCombinedFutureCancelBehavior() {
+      final var future1 = new ExtendedFuture<>();
+      final var future2 = new ExtendedFuture<>();
+
+      final var combined = Futures.combine(future1, future2).toList();
+
+      assertThat(combined.cancel(false)).isTrue();
+      assertThat(combined).isCancelled();
+      assertThat(future1.isCancelled()).isFalse();
+      assertThat(future2.isCancelled()).isFalse();
+
+      final var future3 = new ExtendedFuture<>();
+      final var future4 = new ExtendedFuture<>();
+      final var combinedAll = Futures.combine(future3, future4).toList();
+
+      assertThat(combinedAll.cancelAll(true)).isTrue();
+      assertThat(combinedAll).isCancelled();
+      assertThat(future3).isCancelled();
+      assertThat(future4).isCancelled();
+   }
+
+   @Test
    void testForwardCancellation() {
       final var sourceFuture = new ExtendedFuture<>();
       final var targetFuture = new ExtendedFuture<>();

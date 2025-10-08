@@ -81,6 +81,17 @@ public final class Futures {
       }
 
       /**
+       * {@inheritDoc}
+       * <p>
+       * Cancels only this combined view. Call {@link #cancelAll(boolean)} to cancel the constituent futures as well.
+       * </p>
+       */
+      @Override
+      public boolean cancel(final boolean mayInterruptIfRunning) {
+         return super.cancel(mayInterruptIfRunning);
+      }
+
+      /**
        * @return a stream of the combined futures
        */
       @SuppressWarnings("unchecked")
