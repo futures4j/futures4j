@@ -8,6 +8,7 @@ package io.github.futures4j;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -18,6 +19,11 @@ import org.junit.jupiter.api.Test;
 class FutureTaskTest extends AbstractFutureTest {
 
    final ExecutorService executor = Executors.newSingleThreadExecutor();
+
+   @AfterEach
+   void tearDown() {
+      executor.shutdownNow();
+   }
 
    @Test
    void testSingleStageCancel() throws InterruptedException {

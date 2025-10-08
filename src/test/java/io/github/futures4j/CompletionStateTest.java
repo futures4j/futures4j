@@ -28,8 +28,8 @@ class CompletionStateTest extends AbstractFutureTest {
       }
 
       { // completed future
-         final var uture = CompletableFuture.completedFuture("Success");
-         assertThat(CompletionState.of(uture)).isEqualTo(SUCCESS);
+         final var future = CompletableFuture.completedFuture("Success");
+         assertThat(CompletionState.of(future)).isEqualTo(SUCCESS);
       }
 
       { // cancelled future

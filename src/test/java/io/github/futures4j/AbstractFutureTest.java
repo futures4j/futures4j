@@ -180,7 +180,7 @@ abstract class AbstractFutureTest {
       final var stage2 = stage1.thenRun(createTask(stage2State, 500));
 
       final MutableRef<TaskState> stage3State = MutableRef.of(NEW);
-      final var stage3 = stage2.thenRun(createTask(stage2State, 500));
+      final var stage3 = stage2.thenRun(createTask(stage3State, 500));
 
       awaitTaskState(stage1State, RUNNING);
 
@@ -222,7 +222,7 @@ abstract class AbstractFutureTest {
       final var stage2 = stage1.thenRun(createTask(stage2State, 500));
 
       final MutableRef<TaskState> stage3State = MutableRef.of(NEW);
-      final var stage3 = stage2.thenRun(createTask(stage2State, 500));
+      final var stage3 = stage2.thenRun(createTask(stage3State, 500));
 
       awaitTaskState(stage1State, RUNNING);
 
