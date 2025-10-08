@@ -74,7 +74,8 @@ public final class Futures {
 
          final var cancelled = super.cancel(mayInterruptIfRunning && isInterruptible());
          if (cancelled) {
-            combinedFutures.forEach(f -> f.cancel(mayInterruptIfRunning && isInterruptible()));
+            // Propagate caller intent directly to constituents; CombinedFuture remains non-interruptible itself
+            combinedFutures.forEach(f -> f.cancel(mayInterruptIfRunning));
          }
          return cancelled;
       }

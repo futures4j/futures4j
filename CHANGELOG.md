@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- propagate `CombinedFuture.cancel(true)` interrupt intent to combined futures while keeping CombinedFuture non-interruptible
+
 ### Fixed
 
 - mutation on read-only futures (`completeWith`, `orTimeout`) is not prevented
