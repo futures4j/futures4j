@@ -320,6 +320,14 @@ It simplifies handling asynchronous computations by offering functionality to ca
      String result = Futures.getOrFallback(future, 1, TimeUnit.SECONDS, "Fallback Result");
      ```
 
+> **Note on executors and thread usage:**
+>
+> - When the utility methods needs to adapt a plain `Future<T>` to a `CompletableFuture<T>` internally (e.g., in combiner/flattening methods), it uses
+>   `CompletableFuture.supplyAsync(...)` without an explicit executor. This means the work runs on the `ForkJoinPool.commonPool()` by default.
+> - If you want to control the executor used for such work, prefer supplying `CompletableFuture`/`ExtendedFuture` instances that already use your
+>  desired executor (e.g., via `ExtendedFuture.runAsyncWithDefaultExecutor(...)` or `ExtendedFuture.supplyAsyncWithDefaultExecutor(...)`), or
+>  create your own `CompletableFuture` with a specific executor and pass that instead of a plain `Future`.
+
 
 ### <a name="CompletionState"></a>The `CompletionState` enum
 
