@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+SPDX-FileCopyrightText: © Sebastian Thomschke
+SPDX-FileContributor: Sebastian Thomschke: initial configuration
+SPDX-License-Identifier: EPL-2.0
+SPDX-ArtifactOfProjectHomePage: https://github.com/futures4j/futures4j
+
+check for new dependency/plugin updates using:
+  mvn -U -ntp versions:display-dependency-updates versions:display-plugin-updates
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.vegardit.maven</groupId>
+    <artifactId>vegardit-maven-parent</artifactId>
+    <version>6.1.11</version>
+  </parent>
+
+  <groupId>io.github.futures4j</groupId>
+  <artifactId>futures4j</artifactId>
+  <version>1.1.2-SNAPSHOT</version>
+
+  <name>futures4j</name>
+  <description>A small dependency-free utility library providing enhancements and extensions for working with Java Futures</description>
+  <url>https://github.com/futures4j/futures4j</url>
+  <inceptionYear>2024</inceptionYear>
+  <organization>
+    <!-- used as Specification/Implementation-Vendor in MANIFEST.MF -->
+    <name>Sebastian Thomschke</name>
+  </organization>
+  <licenses>
+    <license>
+      <name>Eclipse Public License 2.0</name>
+      <distribution>repo</distribution>
+      <url>https://spdx.org/licenses/EPL-2.0</url>
+    </license>
+  </licenses>
+
+
+  <developers>
+    <developer>
+      <id>sebthom</id>
+      <name>Sebastian Thomschke</name>
+      <url>https://sebthom.de/</url>
+      <timezone>Europe/Berlin</timezone>
+    </developer>
+  </developers>
+
+
+  <scm>
+    <!-- https://maven.apache.org/scm/git.html -->
+    <url>https://github.com/futures4j/futures4j</url>
+    <connection>scm:git:https://github.com/futures4j/futures4j.git</connection>
+    <developerConnection>scm:git:https://github.com/futures4j/futures4j.git</developerConnection>
+    <tag>HEAD</tag>
+  </scm>
+
+
+  <issueManagement>
+    <system>github.com</system>
+    <url>https://github.com/futures4j/futures4j/issues</url>
+  </issueManagement>
+
+
+  <ciManagement>
+    <system>github.com</system>
+    <url>https://github.com/futures4j/futures4j/actions</url>
+  </ciManagement>
+
+
+  <properties>
+    <java.version>11</java.version>
+    <skip.japicmp.cmp>true</skip.japicmp.cmp>
+    <assertj.version>3.27.6</assertj.version>
+  </properties>
+
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.junit</groupId>
+        <artifactId>junit-bom</artifactId>
+        <version>5.14.0</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+
+  <dependencies>
+    <dependency>
+      <groupId>org.eclipse.jdt</groupId>
+      <artifactId>org.eclipse.jdt.annotation</artifactId>
+      <version>2.4.0</version>
+      <scope>provided</scope>
+    </dependency>
+    <!--External Eclipse null Annotations, see https://github.com/vegardit/no-npe-->
+    <dependency>
+      <groupId>com.vegardit.no-npe</groupId>
+      <artifactId>no-npe-eea-all</artifactId>
+      <version>1.3.6</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <!-- test dependencies -->
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <version>${assertj.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>net.sf.jstuff</groupId>
+      <artifactId>jstuff-core</artifactId>
+      <version>7.14.0</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>build-helper-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>add-license-file-to-jar</id>
+            <phase>generate-resources</phase>
+            <goals>
+              <goal>add-resource</goal>
+            </goals>
+            <configuration>
+              <resources>
+                <resource>
+                  <directory>./</directory>
+                  <targetPath>META-INF</targetPath>
+                  <includes>
+                    <include>LICENSE.txt</include>
+                  </includes>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <configuration>
+          <dependencyLinks>
+            <dependencyLink>
+              <!--workaround for
+                https://github.com/assertj/assertj/issues/3476
+                https://issues.apache.org/jira/projects/MJAVADOC/issues/MJAVADOC-792
+              -->
+              <groupId>org.assertj</groupId>
+              <artifactId>assertj-core</artifactId>
+              <url>https://www.javadoc.io/doc/org.assertj/assertj-core/${assertj.version}</url>
+            </dependencyLink>
+          </dependencyLinks>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+</project>
