@@ -240,9 +240,7 @@ public final class Futures {
 
          for (final var future : futures) {
             combiningFuture = combiningFuture.thenCombine(Futures.toCompletableFuture(future), (combined, result) -> {
-               if (result != null) {
-                  combined.put((Future<T>) future, result);
-               }
+               combined.put((Future<T>) future, result);
                return combined;
             });
          }
