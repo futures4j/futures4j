@@ -318,6 +318,27 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    /**
+    * Remembers the original {@code mayInterruptIfRunning} intent on the concrete stage instance being cancelled
+    * (useful when a non-interruptible wrapper masks the flag for its own cancellation but we still want upstream
+    * propagation to honor the caller's intent).
+    */
+   private boolean hasCancelIntent;
+   private boolean cancelIntentMayInterrupt;
+
+   private void rememberCancelIntentIfAbsent(final boolean mayInterruptIfRunning) {
+      if (!hasCancelIntent) {
+         hasCancelIntent = true;
+         cancelIntentMayInterrupt = mayInterruptIfRunning;
+      }
+   }
+
+   private boolean resolveCancelIntentOrDefault(final boolean defaultMayInterruptIfRunning) {
+      final boolean result = hasCancelIntent ? cancelIntentMayInterrupt : defaultMayInterruptIfRunning;
+      hasCancelIntent = false;
+      return result;
+   }
+
+   /**
     * Modes for creating a read-only view of an {@link ExtendedFuture}.
     */
    public enum ReadOnlyMode {
@@ -348,6 +369,10 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
       @Override
       public boolean cancel(final boolean mayInterruptIfRunning) {
+         // Preserve the caller's original intent for upstream propagation even if this wrapper masks interrupts
+         if (wrapped instanceof ExtendedFuture) {
+            ((ExtendedFuture<?>) wrapped).rememberCancelIntentIfAbsent(mayInterruptIfRunning);
+         }
          return wrapped.cancel(mayInterruptIfRunning && isInterruptible());
       }
 
@@ -873,9 +898,12 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
       final boolean cancelled = super.cancel(mayInterruptIfRunning && isInterruptible());
       if (cancelled && !cancellablePrecedingStages.isEmpty()) {
+         // Use the original caller intent if captured by a wrapper; otherwise, use the given flag
+         final boolean requestedMayInterrupt = resolveCancelIntentOrDefault(mayInterruptIfRunning);
          cancellablePrecedingStages.removeIf(stage -> {
             if (!stage.isDone()) {
-               stage.cancel(mayInterruptIfRunning && isInterruptible());
+               final boolean stageInterruptible = !(stage instanceof ExtendedFuture) || ((ExtendedFuture<?>) stage).isInterruptible();
+               stage.cancel(requestedMayInterrupt && stageInterruptible);
             }
             return true;
          });

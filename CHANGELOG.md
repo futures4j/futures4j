@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- mutation on read-only futures (`completeWith`, `orTimeout`) is not prevented
+- `ExtendedFuture#cancel(true)` on non-interruptible downstream stage does not interrupt upstream
+
+
+## [1.1.1] 2025-05-01
+
+### Fixed
+
+- IllegalStateException in ExtendedFuture with long running stages
+
 
 ## [1.1.0] 2024-10-10
 

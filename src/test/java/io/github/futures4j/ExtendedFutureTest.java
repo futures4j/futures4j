@@ -5,7 +5,7 @@
  */
 package io.github.futures4j;
 
-import static io.github.futures4j.AbstractFutureTest.TaskState.INTERRUPTED;
+import static io.github.futures4j.AbstractFutureTest.TaskState.*;
 import static io.github.futures4j.CompletionState.CANCELLED;
 import static net.sf.jstuff.core.validation.NullAnalysisHelper.asNonNull;
 import static org.assertj.core.api.Assertions.*;
@@ -42,6 +42,7 @@ import io.github.futures4j.util.ThrowingConsumer;
 import io.github.futures4j.util.ThrowingFunction;
 import io.github.futures4j.util.ThrowingRunnable;
 import net.sf.jstuff.core.concurrent.Threads;
+import net.sf.jstuff.core.ref.MutableObservableRef;
 import net.sf.jstuff.core.ref.MutableRef;
 
 /**
@@ -253,7 +254,6 @@ class ExtendedFutureTest extends AbstractFutureTest {
 
    @Test
    void testBuilder() {
-
       {
          final var future = ExtendedFuture.builder(String.class).build();
 
@@ -285,6 +285,33 @@ class ExtendedFutureTest extends AbstractFutureTest {
          assertThat(future.defaultExecutor()).isEqualTo(customExecutor);
          assertThat(future).isCompletedWithValue("Hello");
       }
+   }
+
+   @Test
+   void testCancelTrueOnNonInterruptibleDownstreamShouldStillInterruptUpstream() throws Exception {
+      // upstream (stage1): interruptible task
+      final MutableRef<TaskState> stage1State = MutableObservableRef.of(NEW);
+      final var stage1 = ExtendedFuture.runAsync(createTask(stage1State, 5_000));
+
+      // ensure downstream stages can cancel preceding stages
+      final var stage1Cancellable = stage1.asCancellableByDependents(true);
+
+      // create a dependent stage (stage2) and then a non-interruptible view (stage2NonInt)
+      final var stage2 = stage1Cancellable.thenRunAsync(() -> { /* noop */ });
+      final var stage2NonInt = stage2.asNonInterruptible();
+
+      // wait for upstream to start running
+      awaitTaskState(stage1State, RUNNING);
+
+      // cancel the non-interruptible downstream stage with interrupt request
+      stage2NonInt.cancel(true);
+
+      // expect the upstream task to be interrupted (caller requested interruption)
+      awaitTaskStateNOT(stage1State, RUNNING);
+      assertTaskState(stage1State, INTERRUPTED);
+
+      // sanity: the downstream was cancelled
+      assertThat(stage2NonInt).isCancelled();
    }
 
    @Test
@@ -816,9 +843,7 @@ class ExtendedFutureTest extends AbstractFutureTest {
          final var future2 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
 
          final AtomicInteger executions = new AtomicInteger();
-         final ThrowingRunnable<?> action = () -> {
-            executions.incrementAndGet();
-         };
+         final ThrowingRunnable<?> action = executions::incrementAndGet;
          final var resultFuture = Futures.combine( //
             future1.runAfterBoth(future2, action), //
             future1.runAfterBoth(future2, (Runnable) action), //
@@ -847,9 +872,7 @@ class ExtendedFutureTest extends AbstractFutureTest {
          final var future1 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
          var future2 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
          final AtomicInteger executions = new AtomicInteger();
-         final ThrowingRunnable<?> action = () -> {
-            executions.incrementAndGet();
-         };
+         final ThrowingRunnable<?> action = executions::incrementAndGet;
          var resultFuture = Futures.combine( //
             future1.runAfterEither(future2, action), //
             future1.runAfterEither(future2, (Runnable) action), //
@@ -904,6 +927,7 @@ class ExtendedFutureTest extends AbstractFutureTest {
          assertThat(str).isEqualTo("Initial");
          executions.incrementAndGet();
       };
+      @SuppressWarnings("null")
       final var resultFuture = Futures.combine( //
          completedFuture.thenAccept(consumer), //
          completedFuture.thenAccept((Consumer<String>) consumer), //
@@ -1075,9 +1099,7 @@ class ExtendedFutureTest extends AbstractFutureTest {
          final var future1 = new ExtendedFuture<String>().withInterruptibleStages(interruptibleStages);
 
          final AtomicInteger executions = new AtomicInteger();
-         final ThrowingRunnable<?> fn = () -> {
-            executions.incrementAndGet();
-         };
+         final ThrowingRunnable<?> fn = executions::incrementAndGet;
          final var resultFuture = Futures.combine( //
             future1.thenRun(fn), //
             future1.thenRun((Runnable) fn), //
@@ -1123,9 +1145,7 @@ class ExtendedFutureTest extends AbstractFutureTest {
       final CountDownLatch latch = new CountDownLatch(1);
 
       // stage 0 blocks on the latch
-      final var fut0 = ExtendedFuture.runAsync(() -> {
-         latch.await();
-      }, exec).withInterruptibleStages(true);
+      final var fut0 = ExtendedFuture.runAsync(latch::await, exec).withInterruptibleStages(true);
 
       // stage 1 will never start because we cancel it immediately
       final var fut1 = fut0.thenRunAsync(() -> { /* never reached */ });
