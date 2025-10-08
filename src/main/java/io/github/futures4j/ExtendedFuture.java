@@ -216,8 +216,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    private static final class InterruptibleWrappingFuture<T> extends WrappingFuture<T> {
 
-      private InterruptibleWrappingFuture(final InterruptibleFuture<T> wrapped, final boolean cancellableByDependents,
-            final boolean interruptibleStages, final @Nullable Executor defaultExecutor) {
+      private InterruptibleWrappingFuture(final CompletableFuture<T> /*InterruptibleWrappingFuture<T>|InterruptibleFuture<T>*/ wrapped,
+            final boolean cancellableByDependents, final boolean interruptibleStages, final @Nullable Executor defaultExecutor) {
          super(wrapped, cancellableByDependents, interruptibleStages, defaultExecutor);
       }
 
@@ -783,8 +783,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       if (isCancellableByDependents == cancellableByDependents)
          return this;
       return isInterruptible() //
-            ? new InterruptibleWrappingFuture<>((InterruptibleFuture<T>) this, isCancellableByDependents, interruptibleStages,
-               defaultExecutor)
+            ? new InterruptibleWrappingFuture<>(this, isCancellableByDependents, interruptibleStages, defaultExecutor)
             : new WrappingFuture<>(this, isCancellableByDependents, interruptibleStages, defaultExecutor);
    }
 
@@ -1940,8 +1939,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          return this;
 
       return isInterruptible() //
-            ? new InterruptibleWrappingFuture<>((InterruptibleFuture<T>) this, cancellableByDependents, interruptibleStages,
-               defaultExecutor)
+            ? new InterruptibleWrappingFuture<>(this, cancellableByDependents, interruptibleStages, defaultExecutor)
             : new WrappingFuture<>(this, cancellableByDependents, interruptibleStages, defaultExecutor);
    }
 
@@ -1960,8 +1958,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          return this;
 
       return isInterruptible() //
-            ? new InterruptibleWrappingFuture<>((InterruptibleFuture<T>) this, cancellableByDependents, interruptibleStages,
-               defaultExecutor)
+            ? new InterruptibleWrappingFuture<>(this, cancellableByDependents, interruptibleStages, defaultExecutor)
             : new WrappingFuture<>(this, cancellableByDependents, interruptibleStages, defaultExecutor);
    }
 }

@@ -1211,4 +1211,36 @@ class ExtendedFutureTest extends AbstractFutureTest {
       defaultExecutor1.shutdown();
       defaultExecutor2.shutdown();
    }
+
+   @Test
+   void testRewrappingInterruptibleWrapperKeepsSemantics() {
+      // Create an interruptible base instance (InterruptibleFuture)
+      final ExtendedFuture<String> base = ExtendedFuture.builder(String.class).build();
+      assertThat(base.isInterruptible()).isTrue();
+
+      // First wrap into an InterruptibleWrappingFuture by changing default executor
+      final ExtendedFuture<String> interruptibleWrapper = base.withDefaultExecutor(Runnable::run);
+      assertThat(interruptibleWrapper.isInterruptible()).isTrue();
+      assertThat(interruptibleWrapper).isNotInstanceOf(ExtendedFuture.InterruptibleFuture.class);
+
+      // Re-wrap: should NOT throw and must preserve expected flags
+      final ExtendedFuture<String> cbd = interruptibleWrapper.asCancellableByDependents(true);
+      assertThat(cbd.isInterruptible()).isTrue();
+      assertThat(cbd.isCancellableByDependents()).isTrue();
+
+      final ExtendedFuture<String> sameExec = interruptibleWrapper.withDefaultExecutor(Runnable::run);
+      assertThat(sameExec.isInterruptible()).isTrue();
+
+      final ExtendedFuture<String> nonIntStages = interruptibleWrapper.withInterruptibleStages(false);
+      assertThat(nonIntStages.isInterruptible()).isTrue();
+      assertThat(nonIntStages.isInterruptibleStages()).isFalse();
+
+      // Rewrap on top of a wrapper again to ensure stability over sequences
+      final ExtendedFuture<String> again = nonIntStages.withInterruptibleStages(true) //
+         .asCancellableByDependents(false) //
+         .withDefaultExecutor(Runnable::run);
+      assertThat(again.isInterruptible()).isTrue();
+      assertThat(again.isInterruptibleStages()).isTrue();
+      assertThat(again.isCancellableByDependents()).isFalse();
+   }
 }
