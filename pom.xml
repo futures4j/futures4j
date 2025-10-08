@@ -20,7 +20,7 @@ check for new dependency/plugin updates using:
 
   <groupId>io.github.futures4j</groupId>
   <artifactId>futures4j</artifactId>
-  <version>1.1.2</version>
+  <version>1.1.3-SNAPSHOT</version>
 
   <name>futures4j</name>
   <description>A small dependency-free utility library providing enhancements and extensions for working with Java Futures</description>
@@ -54,7 +54,7 @@ check for new dependency/plugin updates using:
     <url>https://github.com/futures4j/futures4j</url>
     <connection>scm:git:https://github.com/futures4j/futures4j.git</connection>
     <developerConnection>scm:git:https://github.com/futures4j/futures4j.git</developerConnection>
-    <tag>1.1.2</tag>
+    <tag>HEAD</tag>
   </scm>
 
 
