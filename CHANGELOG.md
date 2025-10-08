@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [1.1.2] 2025-10-08
+
 ### Changed
 
 - propagate `CombinedFuture.cancel(true)` interrupt intent to combined futures while keeping CombinedFuture non-interruptible
