@@ -215,12 +215,12 @@ It offers several improvements:
 6. **Allows Defining a Default Executor**
 
    You can specify a default executor for a future and its subsequent stages using
-   [ExtendedFuture.createWithDefaultExecutor(Executor)](https://futures4j.github.io/futures4j/javadoc/io/github/futures4j/ExtendedFuture.html#createWithDefaultExecutor(java.util.concurrent.Executor)) or
+   [ExtendedFuture.runAsyncWithDefaultExecutor(ThrowingRunnable,Executor)](https://futures4j.github.io/futures4j/javadoc/io/github/futures4j/ExtendedFuture.html#runAsyncWithDefaultExecutor(io.github.futures4j.util.ThrowingRunnable,java.util.concurrent.Executor)),
+   [ExtendedFuture.supplyAsyncWithDefaultExecutor(ThrowingSupplier,Executor)](https://futures4j.github.io/futures4j/javadoc/io/github/futures4j/ExtendedFuture.html#supplyAsyncWithDefaultExecutor(io.github.futures4j.util.ThrowingSupplier,java.util.concurrent.Executor)), or
    [ExtendedFuture.withDefaultExecutor(Executor)](https://futures4j.github.io/futures4j/javadoc/io/github/futures4j/ExtendedFuture.html#withDefaultExecutor(java.util.concurrent.Executor)):
-
    ```java
    // Use myDefaultExecutor for all subsequent stages by default
-   var myFuture = ExtendedFuture.createWithDefaultExecutor(myDefaultExecutor);
+   var myFuture = ExtendedFuture.builder(String.class).withDefaultExecutor(myDefaultExecutor).build();
 
    // Use myDefaultExecutor2 for all subsequent stages by default
    var myFuture2 = myFuture.withDefaultExecutor(myDefaultExecutor2);
@@ -237,14 +237,11 @@ It offers several improvements:
    // Returns true if the future completed normally
    boolean success = myFuture.isSuccess();
 
-   // Returns the completion state (CANCELLED, SUCCESS, FAILED, INCOMPLETE)
-   CompletionState state = myFuture.getCompletionState();
-
    // Returns the completed value or the fallbackValue; never throws an exception
    T result = myFuture.getNowOrFallback(fallbackValue);
 
    // Returns the completed value or the fallbackValue after waiting; never throws an exception
-   T result = myFuture.getOrFallback(10, TimeUnit.SECONDS, fallbackValue);
+   T result = myFuture.getOrFallback(fallbackValue, 10, TimeUnit.SECONDS);
 
    // Complete a future with the same value/exception of another future
    CompletableFuture<String> otherFuture = ...;
