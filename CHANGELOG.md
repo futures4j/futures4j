@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - mutation on read-only futures (`completeWith`, `orTimeout`) is not prevented
 - `ExtendedFuture#cancel(true)` on non-interruptible downstream stage does not interrupt upstream
+- some delegation methods are missing on internal `ExtendedFuture#WrappingFuture` class
 
 
 ## [1.1.1] 2025-05-01

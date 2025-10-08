@@ -411,6 +411,12 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       }
 
       @Override
+      public ExtendedFuture<T> completeOnTimeout(final T value, final long timeout, final TimeUnit unit) {
+         wrapped.completeOnTimeout(value, timeout, unit);
+         return this;
+      }
+
+      @Override
       public ExtendedFuture<T> completeWith(final CompletableFuture<? extends T> future) {
          future.whenComplete((result, ex) -> {
             if (ex == null) {
@@ -419,6 +425,22 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
                wrapped.completeExceptionally(ex);
             }
          });
+         return this;
+      }
+
+      @Override
+      public void obtrudeException(final Throwable ex) {
+         wrapped.obtrudeException(ex);
+      }
+
+      @Override
+      public void obtrudeValue(final T value) {
+         wrapped.obtrudeValue(value);
+      }
+
+      @Override
+      public ExtendedFuture<T> orTimeout(final long timeout, final TimeUnit unit) {
+         wrapped.orTimeout(timeout, unit);
          return this;
       }
    }
