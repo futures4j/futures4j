@@ -1221,7 +1221,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    /**
-    * Attempts to retrieve the result this future within the specified timeout.
+    * Attempts to retrieve the result of this future within the specified timeout.
     *
     * @return an {@link Optional} containing the result of the future if completed normally within the timeout,
     *         or an empty {@link Optional} otherwise
@@ -1231,7 +1231,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    /**
-    * Attempts to retrieve the result this future within the specified timeout.
+    * Attempts to retrieve the result of this future within the specified timeout.
     *
     * @return an {@link Optional} containing the result of the future if completed normally within the timeout,
     *         or an empty {@link Optional} otherwise
