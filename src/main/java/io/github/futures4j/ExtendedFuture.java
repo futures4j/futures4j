@@ -446,6 +446,10 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
                if (cause instanceof CancellationException) {
                   final boolean mayInterrupt = future instanceof ExtendedFuture //
                         && ((ExtendedFuture<?>) future).getCancelInterruptIntentOrDefault(false);
+                  // Preserve the original caller intent on the wrapped instance for upstream propagation
+                  if (wrapped instanceof ExtendedFuture) {
+                     ((ExtendedFuture<?>) wrapped).rememberCancelInterruptIntentIfAbsent(mayInterrupt);
+                  }
                   // Cancel the wrapped future to preserve cancellation semantics
                   wrapped.cancel(mayInterrupt && isInterruptible());
                } else {
