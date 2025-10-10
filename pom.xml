@@ -15,7 +15,7 @@ check for new dependency/plugin updates using:
   <parent>
     <groupId>com.vegardit.maven</groupId>
     <artifactId>vegardit-maven-parent</artifactId>
-    <version>6.1.11</version>
+    <version>6.1.12</version>
   </parent>
 
   <groupId>io.github.futures4j</groupId>
