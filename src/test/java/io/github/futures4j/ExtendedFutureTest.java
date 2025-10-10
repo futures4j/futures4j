@@ -13,6 +13,7 @@ import static org.assertj.core.api.Assertions.*;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.List;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CountDownLatch;
@@ -361,6 +362,36 @@ class ExtendedFutureTest extends AbstractFutureTest {
       future1.completeWith(future2);
 
       assertThat(future1.join()).isEqualTo("Result");
+   }
+
+   @Test
+   void testCompleteWithPropagatesCancellation() {
+      final var source = new ExtendedFuture<String>();
+      final var parent = ExtendedFuture.builder(String.class).withInterruptible(true).withCancellableByDependents(true).build();
+      final var target = parent.thenApply(Function.identity());
+
+      target.completeWith(source);
+      source.cancel(true);
+
+      assertThatThrownBy(target::join).isInstanceOf(CancellationException.class);
+      assertThat(target.isCancelled()).isTrue();
+      assertThat(parent.isCancelled()).isTrue();
+      assertThat(parent.getCancelInterruptIntentOrDefault(false)).isTrue();
+   }
+
+   @Test
+   void testWrappingCompleteWithPropagatesCancellation() {
+      final var backing = new ExtendedFuture<String>();
+      final var wrapper = backing.asNonInterruptible();
+      final var source = new ExtendedFuture<String>();
+
+      wrapper.completeWith(source);
+      source.cancel(true);
+
+      assertThat(backing.isCancelled()).isTrue();
+      assertThat(backing.getCancelInterruptIntentOrDefault(false)).isTrue();
+      assertThat(wrapper.isCancelled()).isTrue();
+      assertThatThrownBy(wrapper::join).isInstanceOf(CancellationException.class);
    }
 
    @Test

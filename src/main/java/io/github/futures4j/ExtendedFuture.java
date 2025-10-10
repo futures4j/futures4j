@@ -11,6 +11,7 @@ import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
 import java.util.Collection;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
@@ -319,24 +320,34 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    /**
-    * Remembers the original {@code mayInterruptIfRunning} intent on the concrete stage instance being cancelled
-    * (useful when a non-interruptible wrapper masks the flag for its own cancellation but we still want upstream
-    * propagation to honor the caller's intent).
+    * Remembers the original {@code mayInterruptIfRunning} intent on the concrete stage instance being cancelled (useful when a
+    * non-interruptible wrapper masks the flag for its own cancellation but we still want upstream propagation to honor the caller's
+    * intent).
     */
-   private final AtomicReference<@Nullable Boolean> cancelIntentMayInterrupt = new AtomicReference<>();
+   private final AtomicReference<@Nullable Boolean> cancelInterruptIntent = new AtomicReference<>();
 
-   private void rememberCancelIntentIfAbsent(final boolean mayInterruptIfRunning) {
-      cancelIntentMayInterrupt.compareAndSet(null, Boolean.valueOf(mayInterruptIfRunning));
+   /**
+    * Record the caller's cancel intent (mayInterruptIfRunning) if it has not been set yet.
+    * Useful when a non-interruptible wrapper needs to preserve the original interrupt intent for upstream propagation.
+    */
+   private void rememberCancelInterruptIntentIfAbsent(final boolean mayInterruptIfRunning) {
+      cancelInterruptIntent.compareAndSet(null, Boolean.valueOf(mayInterruptIfRunning));
    }
 
-   private boolean resolveCancelIntentOrDefault(final boolean defaultMayInterruptIfRunning) {
-      final var intent = cancelIntentMayInterrupt.getAndSet(null);
-      return intent == null ? defaultMayInterruptIfRunning : intent.booleanValue();
+   /**
+    * Consume and clear the stored caller cancel interrupt intent, or return the provided default if none was recorded.
+    */
+   private boolean consumeCancelInterruptIntentOrDefault(final boolean defaultMayInterruptIfRunning) {
+      final var intent = cancelInterruptIntent.getAndSet(null);
+      return intent == null ? defaultMayInterruptIfRunning : intent;
    }
 
-   boolean getCancelIntentOrDefault(final boolean defaultMayInterruptIfRunning) {
-      final var intent = cancelIntentMayInterrupt.get();
-      return intent == null ? defaultMayInterruptIfRunning : intent.booleanValue();
+   /**
+    * Peek at the stored caller cancel interrupt intent without clearing it, or return the provided default if none was recorded.
+    */
+   boolean getCancelInterruptIntentOrDefault(final boolean defaultMayInterruptIfRunning) {
+      final var intent = cancelInterruptIntent.get();
+      return intent == null ? defaultMayInterruptIfRunning : intent;
    }
 
    /**
@@ -355,6 +366,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
       protected final CompletableFuture<T> wrapped;
 
+      @SuppressWarnings("synthetic-access")
       private WrappingFuture(final CompletableFuture<T> wrapped, final boolean cancellableByDependents, final boolean interruptibleStages,
             final @Nullable Executor defaultExecutor) {
          super(cancellableByDependents, interruptibleStages, defaultExecutor);
@@ -363,7 +375,14 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
             if (ex == null) {
                super.complete(result);
             } else {
-               super.completeExceptionally(ex);
+               // If the wrapped future was cancelled, reflect cancellation on this wrapper as well
+               final var cause = ex instanceof CompletionException && ex.getCause() != null ? ex.getCause() : ex;
+               if (cause instanceof CancellationException) {
+                  // Do not forward cancellation again to the wrapped instance; only mark this wrapper as cancelled
+                  WrappingFuture.super.cancel(false);
+               } else {
+                  super.completeExceptionally(ex);
+               }
             }
          });
       }
@@ -372,7 +391,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       public boolean cancel(final boolean mayInterruptIfRunning) {
          // Preserve the caller's original intent for upstream propagation even if this wrapper masks interrupts
          if (wrapped instanceof ExtendedFuture) {
-            ((ExtendedFuture<?>) wrapped).rememberCancelIntentIfAbsent(mayInterruptIfRunning);
+            ((ExtendedFuture<?>) wrapped).rememberCancelInterruptIntentIfAbsent(mayInterruptIfRunning);
          }
          return wrapped.cancel(mayInterruptIfRunning && isInterruptible());
       }
@@ -423,7 +442,15 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
             if (ex == null) {
                wrapped.complete(result);
             } else {
-               wrapped.completeExceptionally(ex);
+               final var cause = ex instanceof CompletionException && ex.getCause() != null ? ex.getCause() : ex;
+               if (cause instanceof CancellationException) {
+                  final boolean mayInterrupt = future instanceof ExtendedFuture //
+                        && ((ExtendedFuture<?>) future).getCancelInterruptIntentOrDefault(false);
+                  // Cancel the wrapped future to preserve cancellation semantics
+                  wrapped.cancel(mayInterrupt && isInterruptible());
+               } else {
+                  wrapped.completeExceptionally(ex);
+               }
             }
          });
          return this;
@@ -918,11 +945,11 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       if (isDone())
          return isCancelled();
 
-      rememberCancelIntentIfAbsent(mayInterruptIfRunning);
+      rememberCancelInterruptIntentIfAbsent(mayInterruptIfRunning);
       final boolean cancelled = super.cancel(mayInterruptIfRunning && isInterruptible());
       if (cancelled && !cancellablePrecedingStages.isEmpty()) {
          // Use the original caller intent if captured by a wrapper; otherwise, use the given flag
-         final boolean requestedMayInterrupt = resolveCancelIntentOrDefault(mayInterruptIfRunning);
+         final boolean requestedMayInterrupt = consumeCancelInterruptIntentOrDefault(mayInterruptIfRunning);
          cancellablePrecedingStages.removeIf(stage -> {
             if (!stage.isDone()) {
                final boolean stageInterruptible = !(stage instanceof ExtendedFuture) || ((ExtendedFuture<?>) stage).isInterruptible();
@@ -1022,7 +1049,14 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          if (ex == null) {
             complete(result);
          } else {
-            completeExceptionally(ex);
+            final var cause = ex instanceof CompletionException && ex.getCause() != null ? ex.getCause() : ex;
+            if (cause instanceof CancellationException) {
+               final boolean mayInterrupt = future instanceof ExtendedFuture && ((ExtendedFuture<?>) future)
+                  .getCancelInterruptIntentOrDefault(false);
+               cancel(mayInterrupt);
+            } else {
+               completeExceptionally(ex);
+            }
          }
       });
       return this;

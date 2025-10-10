@@ -565,7 +565,7 @@ public final class Futures {
 
    private static boolean determineCancellationIntent(final CompletableFuture<?> source) {
       if (source instanceof ExtendedFuture)
-         return ((ExtendedFuture<?>) source).getCancelIntentOrDefault(false);
+         return ((ExtendedFuture<?>) source).getCancelInterruptIntentOrDefault(false);
       return false;
    }
 

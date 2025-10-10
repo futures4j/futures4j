@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Cancellation (and interrupt intent) don't propagate because completeWith(...) and WrappingFuture treat cancellations as exceptional completion
+
 
 ## [1.1.2] 2025-10-08
 
