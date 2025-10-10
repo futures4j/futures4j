@@ -1087,7 +1087,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    // @Override
    public ExtendedFuture<T> exceptionallyAsync(final Function<Throwable, ? extends T> fn) {
       // emulate exceptionallyAsync introduced in Java 12
-      return handleAsync((result, ex) -> ex == null ? result : fn.apply(ex));
+      return exceptionallyAsync(fn, defaultExecutor());
    }
 
    /**
@@ -1096,7 +1096,10 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    // @Override
    public ExtendedFuture<T> exceptionallyAsync(final Function<Throwable, ? extends T> fn, final Executor executor) {
       // emulate exceptionallyAsync introduced in Java 12
-      return handleAsync((result, ex) -> ex == null ? result : fn.apply(ex), executor);
+      return handle((result, ex) -> ex == null // Only schedule asynchronously for exceptional completion; pass through success synchronously
+            ? completedFuture(result)
+            : ExtendedFuture.<T>supplyAsync(() -> fn.apply(ex), executor)) //
+               .thenCompose(f -> f);
    }
 
    public ExtendedFuture<T> exceptionallyAsync(final ThrowingFunction<Throwable, ? extends T, ?> fn) {
@@ -1126,7 +1129,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    // @Override
    public ExtendedFuture<T> exceptionallyComposeAsync(final Function<Throwable, ? extends CompletionStage<T>> fn) {
       // emulate exceptionallyComposeAsync introduced in Java 12
-      return handleAsync((result, ex) -> ex == null ? ExtendedFuture.completedFuture(result) : fn.apply(ex)).thenCompose(f -> f);
+      return exceptionallyComposeAsync(fn, defaultExecutor());
    }
 
    /**
@@ -1135,7 +1138,10 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    // @Override
    public ExtendedFuture<T> exceptionallyComposeAsync(final Function<Throwable, ? extends CompletionStage<T>> fn, final Executor executor) {
       // emulate exceptionallyComposeAsync introduced in Java 12
-      return handleAsync((result, ex) -> ex == null ? ExtendedFuture.completedFuture(result) : fn.apply(ex), executor).thenCompose(f -> f);
+      return handle((result, ex) -> ex == null // Apply mapping function asynchronously only for exceptional completion
+            ? completedFuture(result)
+            : ExtendedFuture.<CompletionStage<T>>supplyAsync(() -> fn.apply(ex), executor).thenCompose(f2 -> f2)) //
+               .thenCompose(f -> f);
    }
 
    public ExtendedFuture<T> exceptionallyComposeAsync(final ThrowingFunction<Throwable, ? extends CompletionStage<T>, ?> fn) {

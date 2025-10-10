@@ -425,6 +425,34 @@ class ExtendedFutureTest extends AbstractFutureTest {
    }
 
    @Test
+   @SuppressWarnings("null")
+   void testExceptionallyAsync_success_should_not_schedule_on_executor() {
+      final var base = ExtendedFuture.completedFuture("ok");
+
+      final var res = base.exceptionallyAsync(ex -> {
+         throw new AssertionError("Should not be invoked on success");
+      }, executor);
+
+      assertThat(res.join()).isEqualTo("ok");
+      // Fails with current implementation: handleAsync schedules work even on success
+      assertThat(executor.getExecutions()).as("no async work expected on success").isZero();
+   }
+
+   @Test
+   @SuppressWarnings("null")
+   void testExceptionallyComposeAsync_success_should_not_schedule_on_executor() {
+      final var base = ExtendedFuture.completedFuture("v");
+
+      final var res = base.exceptionallyComposeAsync(ex -> {
+         throw new AssertionError("Should not be invoked on success");
+      }, executor);
+
+      assertThat(res.join()).isEqualTo("v");
+      // Fails with current implementation: handleAsync schedules work even on success
+      assertThat(executor.getExecutions()).as("no async work expected on success").isZero();
+   }
+
+   @Test
    void testExceptionallyCompose() {
       final var failedFuture = ExtendedFuture.failedFuture(new RuntimeException("Initial failure"));
 
