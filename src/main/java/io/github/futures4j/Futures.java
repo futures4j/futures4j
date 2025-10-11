@@ -915,7 +915,7 @@ public final class Futures {
             Thread.currentThread().interrupt();
             throw new CompletionException(ex);
          } catch (final ExecutionException ex) {
-            throw new CompletionException(ex.getCause());
+            throw new CompletionException(ex.getCause() == null ? ex : ex.getCause());
          }
       });
       forwardCancellation(cf, future);
