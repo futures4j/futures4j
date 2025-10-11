@@ -13,6 +13,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -742,7 +743,7 @@ public final class Futures {
          return Optional.ofNullable(future.get(timeout, unit));
       } catch (final TimeoutException ex) {
          if (LOG.isLoggable(Level.DEBUG)) {
-            LOG.log(Level.DEBUG, "Could not get result within " + timeout + " " + unit.toString().toLowerCase() + "(s)", ex);
+            LOG.log(Level.DEBUG, "Could not get result within " + timeout + " " + unit.toString().toLowerCase(Locale.ROOT) + "(s)", ex);
          }
       } catch (final InterruptedException ex) {
          Thread.currentThread().interrupt();
@@ -792,7 +793,7 @@ public final class Futures {
          return future.get(timeout, unit);
       } catch (final TimeoutException ex) {
          if (LOG.isLoggable(Level.DEBUG)) {
-            LOG.log(Level.DEBUG, "Could not get result within " + timeout + " " + unit.toString().toLowerCase() + "(s)", ex);
+            LOG.log(Level.DEBUG, "Could not get result within " + timeout + " " + unit.toString().toLowerCase(Locale.ROOT) + "(s)", ex);
          }
          return fallbackComputer.apply(future, ex);
       } catch (final InterruptedException ex) {
@@ -844,7 +845,7 @@ public final class Futures {
          return future.get(timeout, unit);
       } catch (final TimeoutException ex) {
          if (LOG.isLoggable(Level.DEBUG)) {
-            LOG.log(Level.DEBUG, "Could not get result within " + timeout + " " + unit.toString().toLowerCase() + "(s)", ex);
+            LOG.log(Level.DEBUG, "Could not get result within " + timeout + " " + unit.toString().toLowerCase(Locale.ROOT) + "(s)", ex);
          }
          return fallbackComputer.apply(ex);
       } catch (final InterruptedException ex) {
@@ -894,7 +895,7 @@ public final class Futures {
          return future.get(timeout, unit);
       } catch (final TimeoutException ex) {
          if (LOG.isLoggable(Level.DEBUG)) {
-            LOG.log(Level.DEBUG, "Could not get result within " + timeout + " " + unit.toString().toLowerCase() + "(s)", ex);
+            LOG.log(Level.DEBUG, "Could not get result within " + timeout + " " + unit.toString().toLowerCase(Locale.ROOT) + "(s)", ex);
          }
       } catch (final InterruptedException ex) {
          Thread.currentThread().interrupt();
