@@ -838,12 +838,20 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    /**
     * Creates a read-only view of this {@link ExtendedFuture}.
     * <p>
-    * The returned future is backed by this future, allowing only read operations
-    * such as {@link ExtendedFuture#get()}, {@link ExtendedFuture#join()}, and other non-mutating methods.
-    * Any attempt to invoke mutating operations such as {@link ExtendedFuture#cancel(boolean)},
-    * {@link ExtendedFuture#complete(Object)}, {@link ExtendedFuture#completeExceptionally(Throwable)},
-    * or {@link ExtendedFuture#obtrudeValue(Object)} will result in an {@link UnsupportedOperationException}
-    * or be silently ignored, depending on the specified {@link ReadOnlyMode}.
+    * The returned future is backed by this future, allowing only read operations such as {@link ExtendedFuture#get()},
+    * {@link ExtendedFuture#join()}, and other non-mutating methods.
+    * Any attempt to invoke mutating operations such as {@link ExtendedFuture#cancel(boolean)}, {@link ExtendedFuture#complete(Object)},
+    * {@link ExtendedFuture#completeExceptionally(Throwable)}, or {@link ExtendedFuture#obtrudeValue(Object)} will result in an
+    * {@link UnsupportedOperationException} or be silently ignored, depending on the specified {@link ReadOnlyMode}.
+    * <p>
+    * Cancellation semantics of the read-only view:
+    * <ul>
+    * <li>The returned read-only future has {@link #isCancellableByDependents()} set to {@code false} to uphold the read-only contract.</li>
+    * <li>Dependent stages created from the read-only view cannot cancel this future (or its upstream stages); their cancellation will not
+    * propagate upstream.</li>
+    * <li>Direct mutation attempts on the read-only view (e.g., {@code cancel(...)}, {@code complete(...)}) are handled according to the
+    * chosen {@link ReadOnlyMode}.</li>
+    * </ul>
     *
     * @param readOnlyMode the behavior when a mutating operation is attempted:
     *           {@link ReadOnlyMode#THROW_ON_MUTATION} to throw {@link UnsupportedOperationException},

@@ -198,6 +198,11 @@ It offers several improvements:
    var readOnly2 = myFuture.asReadOnly(ReadOnlyMode.IGNORE_MUTATION); // returns a delegating future that silently ignore modification attempts
    ```
 
+   Note:
+   - The read-only view sets `isCancellableByDependents()` to `false` to preserve the read-only contract.
+   - Dependent stages created from a read-only view cannot cancel the original future or its upstream stages; their cancellation does not propagate upstream.
+   - Direct mutation attempts on the read-only view (`cancel`, `complete`, `completeExceptionally`, `obtrudeValue`, etc.) follow the selected `ReadOnlyMode`.
+
 5. **Backports of Future Methods from Newer Java Versions to Java 11**
 
    `ExtendedFuture` makes Future methods available in Java 11 that were only introduced in later Java versions, providing equivalent functionality.

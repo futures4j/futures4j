@@ -254,6 +254,35 @@ class ExtendedFutureTest extends AbstractFutureTest {
    }
 
    @Test
+   void testAsReadOnly_resetsCancellableByDependents_and_blocksUpstreamCancellation() throws Exception {
+      for (final var mode : List.of(ReadOnlyMode.THROW_ON_MUTATION, ReadOnlyMode.IGNORE_MUTATION)) {
+         final var originalState = MutableObservableRef.of(TaskState.NEW);
+
+         // Long-running upstream to observe lack of upstream cancellation propagation
+         final var original = ExtendedFuture.runAsync(createTask(originalState, 2_000));
+         final var originalCancellable = original.asCancellableByDependents(true);
+
+         // Create read-only view; current implementation resets cancellableByDependents to false
+         final var readOnly = originalCancellable.asReadOnly(mode);
+
+         assertThat(readOnly.isReadOnly()).isTrue();
+         assertThat(readOnly.isCancellableByDependents()).isFalse();
+
+         // Create a dependent stage off the read-only view and cancel it
+         final var dependent = readOnly.thenRun(() -> { /* noop */ });
+         dependent.cancel(true);
+
+         // Cancellation must not propagate upstream due to reset of cancellableByDependents on read-only view
+         awaitFutureState(dependent, CANCELLED);
+         assertThat(originalCancellable).isNotCancelled();
+         assertThat(original).isNotCancelled();
+
+         // cleanup to avoid long waits
+         original.cancel(true);
+      }
+   }
+
+   @Test
    void testBuilder() {
       {
          final var future = ExtendedFuture.builder(String.class).build();
