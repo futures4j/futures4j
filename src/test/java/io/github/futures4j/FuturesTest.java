@@ -164,6 +164,46 @@ class FuturesTest extends AbstractFutureTest {
          .hasRootCauseMessage("oh no!");
    }
 
+   @SuppressWarnings("null")
+   @Test
+   void testCombine_ExceptionCauseNeverNull() {
+      class NullCauseExecutionExceptionFuture implements Future<String> {
+         @Override
+         public boolean cancel(final boolean mayInterruptIfRunning) {
+            return false;
+         }
+
+         @Override
+         public boolean isCancelled() {
+            return false;
+         }
+
+         @Override
+         public boolean isDone() {
+            return true;
+         }
+
+         @Override
+         public String get() throws ExecutionException {
+            throw new ExecutionException("no-cause", null);
+         }
+
+         @Override
+         public String get(final long timeout, final TimeUnit unit) throws ExecutionException {
+            throw new ExecutionException("no-cause", null);
+         }
+      }
+
+      final Future<String> bad = new NullCauseExecutionExceptionFuture();
+      final var combined = Futures.combine(bad).toList();
+
+      // get(): must throw ExecutionException with a non-null cause
+      assertThatThrownBy(() -> combined.get(2, TimeUnit.SECONDS)).isInstanceOf(ExecutionException.class).cause().isNotNull();
+
+      // join(): must throw with a non-null cause as well
+      assertThatThrownBy(combined::join).cause().isNotNull();
+   }
+
    @Test
    @SuppressWarnings("null")
    void testCombine_ToMap() throws InterruptedException, ExecutionException {
