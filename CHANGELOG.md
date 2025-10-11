@@ -8,8 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [1.1.3] 2025-10-11
+
 ### Fixed
 - Cancellation (and interrupt intent) don't propagate because completeWith(...) and WrappingFuture treat cancellations as exceptional completion
+- exceptionallyAsync/exceptionallyComposeAsync(...) schedule executor work on the success path
+- WrappingFuture.completeWith(...) does not preserve original mayInterruptIfRunning intent on the wrapped future
+- time units are debug logged locale-dependent in `Futures`
 
 
 ## [1.1.2] 2025-10-08
