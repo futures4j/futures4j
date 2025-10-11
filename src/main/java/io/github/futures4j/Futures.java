@@ -303,7 +303,6 @@ public final class Futures {
 
          final var futures = new ArrayList<>(this.futures);
          CompletableFuture<Stream.Builder<T>> combiningFuture = CompletableFuture.completedFuture(Stream.builder());
-
          for (final var future : futures) {
             combiningFuture = combiningFuture.thenCombine(Futures.toCompletableFuture(future), (combined, result) -> {
                combined.add(result);
@@ -312,11 +311,11 @@ public final class Futures {
          }
 
          final var combinedFuture = new CombinedFuture<T, Stream<T>>(futures);
-         combiningFuture.whenComplete((result, ex) -> {
-            if (ex == null) {
+         combiningFuture.whenComplete((result, t) -> {
+            if (t == null) {
                combinedFuture.complete(result.build());
             } else {
-               combinedFuture.completeExceptionally(ex);
+               combinedFuture.completeExceptionally(t);
             }
          });
          return combinedFuture;
@@ -610,13 +609,13 @@ public final class Futures {
    public static void forwardCancellation(final CompletableFuture<?> from, final @Nullable Future<?> to) {
       if (to == null)
          return;
-      from.whenComplete((result, ex) -> {
-         if (ex instanceof CancellationException) {
+      from.whenComplete((result, t) -> {
+         if (t instanceof CancellationException) {
             final boolean mayInterrupt = determineCancellationIntent(from);
             try {
                to.cancel(mayInterrupt);
-            } catch (final Exception cancelEx) {
-               LOG.log(Level.ERROR, cancelEx.getMessage(), cancelEx);
+            } catch (final Exception ex) {
+               LOG.log(Level.ERROR, ex.getMessage(), ex);
             }
          }
       });
