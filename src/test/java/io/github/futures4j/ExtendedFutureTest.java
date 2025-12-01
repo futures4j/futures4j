@@ -1230,10 +1230,17 @@ class ExtendedFutureTest extends AbstractFutureTest {
       assertThat(InterruptibleFuturesTracker.BY_ID).isEmpty();
 
       final ExecutorService exec = Executors.newSingleThreadExecutor();
-      final CountDownLatch latch = new CountDownLatch(1);
+      final CountDownLatch stage0Started = new CountDownLatch(1);
+      final CountDownLatch stage0Block = new CountDownLatch(1);
 
-      // stage 0 blocks on the latch
-      final var fut0 = ExtendedFuture.runAsync(latch::await, exec).withInterruptibleStages(true);
+      // stage 0 blocks on the latch; ensure it has actually started so its tracker entry was consumed
+      final var fut0 = ExtendedFuture.runAsync(() -> {
+         stage0Started.countDown();
+         stage0Block.await();
+      }, exec).withInterruptibleStages(true);
+
+      // wait until stage 0 started and its InterruptibleFuturesTracker entry was looked up and removed
+      assertThat(stage0Started.await(5, TimeUnit.SECONDS)).isTrue();
 
       // stage 1 will never start because we cancel it immediately
       final var fut1 = fut0.thenRunAsync(() -> { /* never reached */ });
@@ -1246,7 +1253,7 @@ class ExtendedFutureTest extends AbstractFutureTest {
       // give cancel-propagation a moment
       Thread.sleep(200);
 
-      latch.countDown();
+      stage0Block.countDown();
       exec.shutdownNow();
    }
 
