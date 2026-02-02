@@ -15,7 +15,7 @@ check for new dependency/plugin updates using:
   <parent>
     <groupId>com.vegardit.maven</groupId>
     <artifactId>vegardit-maven-parent</artifactId>
-    <version>7.0.0</version>
+    <version>8.0.0</version>
   </parent>
 
   <groupId>io.github.futures4j</groupId>
@@ -71,7 +71,7 @@ check for new dependency/plugin updates using:
 
 
   <properties>
-    <java.version>11</java.version>
+    <jdk.version>11</jdk.version>
     <skip.japicmp.cmp>true</skip.japicmp.cmp>
     <assertj.version>3.27.7</assertj.version>
   </properties>
