@@ -223,7 +223,6 @@ class ExtendedFutureTest extends AbstractFutureTest {
    }
 
    @Test
-   @SuppressWarnings("null")
    void testAsReadOnly_withThrowOnMutationAttempt() {
       final var originalFuture = new ExtendedFuture<>();
       final var readOnlyFuture = originalFuture.asReadOnly(ReadOnlyMode.THROW_ON_MUTATION);
@@ -454,7 +453,6 @@ class ExtendedFutureTest extends AbstractFutureTest {
    }
 
    @Test
-   @SuppressWarnings("null")
    void testExceptionallyAsync_success_should_not_schedule_on_executor() {
       final var base = ExtendedFuture.completedFuture("ok");
 
@@ -468,7 +466,6 @@ class ExtendedFutureTest extends AbstractFutureTest {
    }
 
    @Test
-   @SuppressWarnings("null")
    void testExceptionallyComposeAsync_success_should_not_schedule_on_executor() {
       final var base = ExtendedFuture.completedFuture("v");
 
@@ -1030,7 +1027,6 @@ class ExtendedFutureTest extends AbstractFutureTest {
    }
 
    @Test
-   @SuppressWarnings("null")
    void testThenAccept_withException() {
       final var failedFuture = ExtendedFuture.failedFuture(new RuntimeException("Initial failure"));
 
@@ -1105,7 +1101,6 @@ class ExtendedFutureTest extends AbstractFutureTest {
    }
 
    @Test
-   @SuppressWarnings("null")
    void testThenApply_withException() {
       final var failedFuture = ExtendedFuture.failedFuture(new RuntimeException("Initial failure"));
 

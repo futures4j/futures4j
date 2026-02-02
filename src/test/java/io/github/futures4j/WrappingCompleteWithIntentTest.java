@@ -20,7 +20,6 @@ import org.junit.jupiter.api.Test;
 class WrappingCompleteWithIntentTest extends AbstractFutureTest {
 
    @Test
-   @SuppressWarnings("null")
    void completeWith_cancellation_should_preserve_interrupt_intent_on_wrapped() {
       // Backing/wrapped future (interruptible stages). The concrete instance of returned stages is irrelevant;
       // we check the cancel intent recorded on the wrapped when cancellation is propagated via completeWith.

@@ -164,7 +164,6 @@ class FuturesTest extends AbstractFutureTest {
          .hasRootCauseMessage("oh no!");
    }
 
-   @SuppressWarnings("null")
    @Test
    void testCombine_ExceptionCauseNeverNull() {
       class NullCauseExecutionExceptionFuture implements Future<String> {
@@ -326,7 +325,6 @@ class FuturesTest extends AbstractFutureTest {
    }
 
    @Test
-   @SuppressWarnings("null")
    void testCombineFlattened_ToList() throws InterruptedException, ExecutionException {
       final var fut1 = ExtendedFuture.supplyAsync(() -> List.of("a", "b"));
       final var fut2 = ExtendedFuture.supplyAsync(() -> new TreeSet<>(Set.of("c", "d")));
@@ -351,7 +349,6 @@ class FuturesTest extends AbstractFutureTest {
    }
 
    @Test
-   @SuppressWarnings("null")
    void testCombineFlattened_ToSet() throws InterruptedException, ExecutionException {
       final var fut1 = ExtendedFuture.supplyAsync(() -> List.of("a", "b"));
       final var fut2 = ExtendedFuture.supplyAsync(() -> Set.of("a", "c"));
@@ -372,7 +369,6 @@ class FuturesTest extends AbstractFutureTest {
    }
 
    @Test
-   @SuppressWarnings("null")
    void testCombineFlattened_ToStream() throws InterruptedException, ExecutionException {
       final var fut1 = ExtendedFuture.supplyAsync(() -> List.of("a", "b"));
       final var fut2 = ExtendedFuture.supplyAsync(() -> new TreeSet<>(Set.of("c", "d")));
