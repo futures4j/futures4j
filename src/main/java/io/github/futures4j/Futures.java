@@ -363,9 +363,9 @@ public final class Futures {
        *
        * @return a future containing a list of results from the combined futures
        */
-      public CombinedFuture<Iterable<T>, List<T>> toList() {
+      public CombinedFuture<@Nullable Iterable<T>, List<T>> toList() {
          if (futures.isEmpty()) {
-            final var combined = new CombinedFuture<Iterable<T>, List<T>>(List.of());
+            final var combined = new CombinedFuture<@Nullable Iterable<T>, List<T>>(List.of());
             combined.complete(List.of());
             return combined;
          }
@@ -383,7 +383,7 @@ public final class Futures {
             });
          }
 
-         final var combinedFuture = new CombinedFuture<Iterable<T>, List<T>>(futures);
+         final var combinedFuture = new CombinedFuture<@Nullable Iterable<T>, List<T>>(futures);
          combinedFuture.completeWith(combiningFuture);
          return combinedFuture;
       }
@@ -394,9 +394,9 @@ public final class Futures {
        *
        * @return a future containing a set of results from the combined futures
        */
-      public CombinedFuture<Iterable<T>, Set<T>> toSet() {
+      public CombinedFuture<@Nullable Iterable<T>, Set<T>> toSet() {
          if (futures.isEmpty()) {
-            final var combined = new CombinedFuture<Iterable<T>, Set<T>>(List.of());
+            final var combined = new CombinedFuture<@Nullable Iterable<T>, Set<T>>(List.of());
             combined.complete(Set.of());
             return combined;
          }
@@ -414,7 +414,7 @@ public final class Futures {
             });
          }
 
-         final var combinedFuture = new CombinedFuture<Iterable<T>, Set<T>>(futures);
+         final var combinedFuture = new CombinedFuture<@Nullable Iterable<T>, Set<T>>(futures);
          combinedFuture.completeWith(combiningFuture);
          return combinedFuture;
       }
@@ -425,9 +425,9 @@ public final class Futures {
        *
        * @return a future containing a stream of results from the combined futures
        */
-      public CombinedFuture<Iterable<? extends T>, Stream<T>> toStream() {
+      public CombinedFuture<@Nullable Iterable<? extends T>, Stream<T>> toStream() {
          if (futures.isEmpty()) {
-            final var combined = new CombinedFuture<Iterable<? extends T>, Stream<T>>(List.of());
+            final var combined = new CombinedFuture<@Nullable Iterable<? extends T>, Stream<T>>(List.of());
             combined.complete(Stream.empty());
             return combined;
          }
@@ -441,7 +441,7 @@ public final class Futures {
                   : Stream.concat(combined, StreamSupport.stream(result.spliterator(), false)));
          }
 
-         final var combinedFuture = new CombinedFuture<Iterable<? extends T>, Stream<T>>(futures);
+         final var combinedFuture = new CombinedFuture<@Nullable Iterable<? extends T>, Stream<T>>(futures);
          combinedFuture.completeWith(combiningFuture);
          return combinedFuture;
       }
