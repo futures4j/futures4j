@@ -2005,9 +2005,11 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public ExtendedFuture<@Nullable Void> runAfterBoth(final CompletionStage<?> other, final Runnable action) {
+      // All "both" variants use this receiver's factory, unlike "either". Keep the input itself so the JDK observes
+      // its current outcome and original cancellation exception rather than an adapter's copied outcome.
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
-            return withSecondPrecedingStage(super.runAfterBoth(toExtendedFuture(other), () -> interruptiblyRun(binding, action)), other);
+            return withSecondPrecedingStage(super.runAfterBoth(other, () -> interruptiblyRun(binding, action)), other);
          }
       }
       return withSecondPrecedingStage(super.runAfterBoth(other, action), other);
@@ -2021,8 +2023,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    public ExtendedFuture<@Nullable Void> runAfterBothAsync(final CompletionStage<?> other, final Runnable action) {
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
-            return withSecondPrecedingStage(super.runAfterBothAsync(toExtendedFuture(other), () -> interruptiblyRun(binding, action)),
-               other);
+            return withSecondPrecedingStage(super.runAfterBothAsync(other, () -> interruptiblyRun(binding, action)), other);
          }
       }
       return withSecondPrecedingStage(super.runAfterBothAsync(other, action), other);
@@ -2032,8 +2033,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    public ExtendedFuture<@Nullable Void> runAfterBothAsync(final CompletionStage<?> other, final Runnable action, final Executor executor) {
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
-            return withSecondPrecedingStage(super.runAfterBothAsync(toExtendedFuture(other), () -> interruptiblyRun(binding, action),
-               executor), other);
+            return withSecondPrecedingStage(super.runAfterBothAsync(other, () -> interruptiblyRun(binding, action), executor), other);
          }
       }
       return withSecondPrecedingStage(super.runAfterBothAsync(other, action, executor), other);
@@ -2150,10 +2150,11 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @Override
    public <U> ExtendedFuture<@Nullable Void> thenAcceptBoth(final CompletionStage<? extends U> other,
          final BiConsumer<? super T, ? super U> action) {
+      // The receiver owns the dependent in all three variants. Adapting other would add a completion step and copy its outcome.
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
-            return withSecondPrecedingStage(super.thenAcceptBoth(toExtendedFuture(other), (result, otherResult) -> interruptiblyAcceptBoth(
-               binding, result, otherResult, action)), other);
+            return withSecondPrecedingStage(super.thenAcceptBoth(other, (result, otherResult) -> interruptiblyAcceptBoth(binding, result,
+               otherResult, action)), other);
          }
       }
       return withSecondPrecedingStage(super.thenAcceptBoth(other, action), other);
@@ -2169,8 +2170,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          final BiConsumer<? super T, ? super U> action) {
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
-            return withSecondPrecedingStage(super.thenAcceptBothAsync(toExtendedFuture(other), (result,
-                  otherResult) -> interruptiblyAcceptBoth(binding, result, otherResult, action)), other);
+            return withSecondPrecedingStage(super.thenAcceptBothAsync(other, (result, otherResult) -> interruptiblyAcceptBoth(binding,
+               result, otherResult, action)), other);
          }
       }
       return withSecondPrecedingStage(super.thenAcceptBothAsync(other, action), other);
@@ -2181,8 +2182,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          final BiConsumer<? super T, ? super U> action, final Executor executor) {
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
-            return withSecondPrecedingStage(super.thenAcceptBothAsync(toExtendedFuture(other), (result,
-                  otherResult) -> interruptiblyAcceptBoth(binding, result, otherResult, action), executor), other);
+            return withSecondPrecedingStage(super.thenAcceptBothAsync(other, (result, otherResult) -> interruptiblyAcceptBoth(binding,
+               result, otherResult, action), executor), other);
          }
       }
       return withSecondPrecedingStage(super.thenAcceptBothAsync(other, action, executor), other);
@@ -2243,10 +2244,11 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @Override
    public <U, V> ExtendedFuture<V> thenCombine(final CompletionStage<? extends U> other,
          final BiFunction<? super T, ? super U, ? extends V> fn) {
+      // The receiver owns the dependent in all three variants. Adapting other would add a completion step and copy its outcome.
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
-            return withSecondPrecedingStage(super.thenCombine(toExtendedFuture(other), (result, otherResult) -> interruptiblyCombine(
-               binding, result, otherResult, fn)), other);
+            return withSecondPrecedingStage(super.thenCombine(other, (result, otherResult) -> interruptiblyCombine(binding, result,
+               otherResult, fn)), other);
          }
       }
       return withSecondPrecedingStage(super.thenCombine(other, fn), other);
@@ -2262,8 +2264,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          final BiFunction<? super T, ? super U, ? extends V> fn) {
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
-            return withSecondPrecedingStage(super.thenCombineAsync(toExtendedFuture(other), (result, otherResult) -> interruptiblyCombine(
-               binding, result, otherResult, fn)), other);
+            return withSecondPrecedingStage(super.thenCombineAsync(other, (result, otherResult) -> interruptiblyCombine(binding, result,
+               otherResult, fn)), other);
          }
       }
       return withSecondPrecedingStage(super.thenCombineAsync(other, fn), other);
@@ -2274,8 +2276,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          final BiFunction<? super T, ? super U, ? extends V> fn, final Executor executor) {
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
-            return withSecondPrecedingStage(super.thenCombineAsync(toExtendedFuture(other), (result, otherResult) -> interruptiblyCombine(
-               binding, result, otherResult, fn), executor), other);
+            return withSecondPrecedingStage(super.thenCombineAsync(other, (result, otherResult) -> interruptiblyCombine(binding, result,
+               otherResult, fn), executor), other);
          }
       }
       return withSecondPrecedingStage(super.thenCombineAsync(other, fn, executor), other);
@@ -2620,7 +2622,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    private <V> ExtendedFuture<V> withSecondPrecedingStage(final CompletionStage<V> source, final CompletionStage<?> other) {
       final var result = toExtendedFuture(source);
       // The receiver is already linked by newIncompleteFuture. Only the original other input can grant cancellation permission;
-      // an internal conversion wrapper must not opt an ordinary CompletionStage into cancellation.
+      // an internal either-stage bridge must not opt an ordinary CompletionStage into cancellation.
       if (other != this) {
          registerCancellablePrecedingStage(result, other);
       }

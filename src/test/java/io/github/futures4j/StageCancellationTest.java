@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
@@ -47,6 +48,7 @@ import io.github.futures4j.util.ThrowingSupplier;
 /**
  * Verifies cancellation ownership and link lifetime for unary, binary and composed stages independently of callback interruption,
  * including external factory calls, construction-time completion, shared cleanup observers, late links, and forced completion.
+ * Mixed-input cases also check that internal adaptation does not change ordinary CompletableFuture outcomes.
  *
  * @author futures4j contributors
  */
@@ -83,14 +85,25 @@ class StageCancellationTest extends AbstractFutureTest {
 
       ExtendedFuture<?> create(final ExtendedFuture<String> left, final CompletionStage<String> right, final EntryPoint entry,
             final boolean throwing, final Executor executor, final AtomicInteger calls) {
+         return create(left, right, entry, throwing, executor, calls, (value, other) -> {
+            // Lifecycle-only cases count executions; mixed-input cases additionally inspect callback values.
+         });
+      }
+
+      ExtendedFuture<?> create(final ExtendedFuture<String> left, final CompletionStage<String> right, final EntryPoint entry,
+            final boolean throwing, final Executor executor, final AtomicInteger calls, final BiConsumer<String, String> observeBoth) {
          final ThrowingRunnable<?> run = calls::incrementAndGet;
          final ThrowingConsumer<String, ?> accept = value -> run.run();
-         final ThrowingBiConsumer<String, String, ?> acceptBoth = (value, other) -> run.run();
+         final ThrowingBiConsumer<String, String, ?> acceptBoth = (value, other) -> {
+            observeBoth.accept(value, other);
+            run.run();
+         };
          final ThrowingFunction<String, String, ?> apply = value -> {
             run.run();
             return value;
          };
          final ThrowingBiFunction<String, String, String, ?> combine = (value, other) -> {
+            observeBoth.accept(value, other);
             run.run();
             return value + other;
          };
@@ -248,6 +261,10 @@ class StageCancellationTest extends AbstractFutureTest {
          .map(throwing -> Objects.requireNonNull(Arguments.of(operation, entry, throwing)))));
    }
 
+   static Stream<Arguments> bothEntryPoints() {
+      return binaryEntryPoints().filter(arguments -> !((BinaryOperation) arguments.get()[0]).isEither());
+   }
+
    static Stream<Arguments> compositionEntryPoints() {
       return Stream.of(EntryPoint.values()).flatMap(entry -> Stream.of(false, true).map(throwing -> Objects.requireNonNull(Arguments.of(
          entry, throwing))));
@@ -335,6 +352,170 @@ class StageCancellationTest extends AbstractFutureTest {
          right.assertCancellation(false, false);
          if (operation.isEither()) {
             assertThat(right).isNotCompleted();
+         }
+      }
+   }
+
+   @ParameterizedTest
+   @MethodSource("bothEntryPoints")
+   void testBothPreservePlainInputCancellation(final BinaryOperation operation, final EntryPoint entry, final boolean throwing) {
+      for (final boolean interruptibleStages : List.of(false, true)) {
+         for (final boolean completedOther : List.of(false, true)) {
+            for (final boolean wrappedCancellation : List.of(false, true)) {
+               final var executor = new QueuedExecutor();
+               final var calls = new AtomicInteger();
+               final var left = new RecordingFuture(true, interruptibleStages, executor);
+               // ExtendedFuture inputs bypass the adapter under test, even if the variable is typed as CompletableFuture.
+               final var right = new CompletableFuture<String>();
+               final var cancellation = new CancellationException("original input cancellation");
+               final Throwable failure = wrappedCancellation ? new CompletionException("original completion failure", cancellation)
+                     : cancellation;
+               if (completedOther) {
+                  right.completeExceptionally(failure);
+               }
+               final var result = operation.create(left, right, entry, throwing, executor, calls);
+               left.complete("left");
+               right.completeExceptionally(failure);
+               executor.runAll();
+
+               final var nativeResult = CompletableFuture.completedFuture("left").thenCombine(right, (value, other) -> value + other);
+               final var expected = Objects.requireNonNull(catchThrowable(nativeResult::join));
+               final var actual = Objects.requireNonNull(catchThrowable(result::join));
+               assertThat(actual).isInstanceOf(CompletionException.class);
+               assertThat(actual.getCause()).isSameAs(expected.getCause());
+               if (wrappedCancellation) {
+                  assertThat(actual).isSameAs(expected);
+               }
+               assertThat(result.isCancelled()).isFalse();
+               assertThat(calls).hasValue(0);
+               assertThat(result.cancellablePrecedingStages).isEmpty();
+            }
+         }
+      }
+   }
+
+   @ParameterizedTest
+   @MethodSource("bothEntryPoints")
+   void testBothObservePlainInputObtrusion(final BinaryOperation operation, final EntryPoint entry, final boolean throwing) {
+      for (final boolean interruptibleStages : List.of(false, true)) {
+         for (final boolean completedOther : List.of(false, true)) {
+            for (final var outcome : List.of(CompletionState.SUCCESS, CompletionState.FAILED, CompletionState.CANCELLED)) {
+               final var executor = new QueuedExecutor();
+               final var calls = new AtomicInteger();
+               final var observedOther = new AtomicReference<String>();
+               final var left = new RecordingFuture(true, interruptibleStages, executor);
+               final var right = new CompletableFuture<String>();
+               if (completedOther) {
+                  right.complete("old");
+               }
+               final var result = operation.create(left, right, entry, throwing, executor, calls, (value, other) -> observedOther.set(
+                  other));
+               final var nativeLeft = new CompletableFuture<String>();
+               final var nativeResult = nativeLeft.thenCombine(right, (value, other) -> value + other);
+               right.complete("old");
+               // Neither callback can have started: both receivers are still pending. This is not a concurrent-obtrusion guarantee.
+               if (outcome == CompletionState.SUCCESS) {
+                  right.obtrudeValue("new");
+               } else {
+                  right.obtrudeException(outcome == CompletionState.FAILED ? new IllegalStateException("new failure")
+                        : new CancellationException("new cancellation"));
+               }
+               left.complete("left");
+               nativeLeft.complete("left");
+               executor.runAll();
+
+               if (outcome == CompletionState.SUCCESS) {
+                  assertThat(result.isSuccess()).isTrue();
+                  assertThat(calls).hasValue(1);
+                  if (operation == BinaryOperation.COMBINE) {
+                     assertThat(result.join()).isEqualTo(nativeResult.join());
+                  }
+                  if (operation != BinaryOperation.RUN_AFTER_BOTH) {
+                     // Completion alone would miss thenAcceptBoth receiving the adapter's stale input value.
+                     assertThat(observedOther).hasValue("new");
+                  }
+               } else {
+                  assertThat(result).isCompletedExceptionally();
+                  final var expected = Objects.requireNonNull(catchThrowable(nativeResult::join));
+                  final var actual = Objects.requireNonNull(catchThrowable(result::join));
+                  assertThat(actual).isInstanceOf(CompletionException.class);
+                  assertThat(actual.getCause()).isSameAs(expected.getCause());
+                  assertThat(calls).hasValue(0);
+               }
+               assertThat(result.cancellablePrecedingStages).isEmpty();
+            }
+         }
+      }
+   }
+
+   @ParameterizedTest
+   @MethodSource("bothEntryPoints")
+   void testBothUseReceiverFactoryWithPlainInput(final BinaryOperation operation, final EntryPoint entry, final boolean throwing) {
+      for (final boolean interruptibleStages : List.of(false, true)) {
+         for (final boolean completedInputs : List.of(false, true)) {
+            final var defaultExecutor = new QueuedExecutor();
+            final var explicitExecutor = new QueuedExecutor();
+            final var created = new ArrayList<ExtendedFuture<?>>();
+            final var left = new ExtendedFuture<String>(true, interruptibleStages, defaultExecutor) {
+               @Override
+               public <V> ExtendedFuture<V> newIncompleteFuture() {
+                  final var result = super.<V>newIncompleteFuture();
+                  created.add(result);
+                  return result;
+               }
+            };
+            final var right = new CompletableFuture<String>() {
+               @Override
+               public <V> CompletableFuture<V> newIncompleteFuture() {
+                  throw new AssertionError("The other input must not supply an internal adapter or dependent factory");
+               }
+
+               @Override
+               public Executor defaultExecutor() {
+                  throw new AssertionError("The other input must not supply the executor");
+               }
+            };
+            if (completedInputs) {
+               left.complete("left");
+               right.complete("right");
+            }
+            final var calls = new AtomicInteger();
+            final var result = operation.create(left, right, entry, throwing, explicitExecutor, calls);
+            assertThat(created).containsExactly(result);
+            assertThat(result.isInterruptible()).isEqualTo(interruptibleStages);
+            assertThat(result.isCancellableByDependents()).isTrue();
+            assertThat(result.defaultExecutor()).isSameAs(defaultExecutor);
+            left.complete("left");
+            right.complete("right");
+            (entry == EntryPoint.ASYNC_EXPLICIT ? defaultExecutor : explicitExecutor).runAll();
+            assertThat(calls).hasValue(entry == EntryPoint.SYNC ? 1 : 0);
+            (entry == EntryPoint.ASYNC_EXPLICIT ? explicitExecutor : defaultExecutor).runAll();
+            // Native stages capture callback failures, so factory identity alone does not prove that ownership binding worked.
+            assertThat(result.isSuccess()).isTrue();
+            assertThat(calls).hasValue(1);
+            assertThat(result.cancellablePrecedingStages).isEmpty();
+         }
+      }
+   }
+
+   @ParameterizedTest
+   @MethodSource("bothEntryPoints")
+   void testBothCancellationDoesNotOptInPlainInput(final BinaryOperation operation, final EntryPoint entry, final boolean throwing) {
+      for (final boolean interruptibleStages : List.of(false, true)) {
+         for (final boolean mayInterrupt : List.of(false, true)) {
+            final var executor = new QueuedExecutor();
+            final var left = new RecordingFuture(true, interruptibleStages, executor);
+            final var right = new CompletableFuture<String>();
+            final var calls = new AtomicInteger();
+            final var result = operation.create(left, right, entry, throwing, executor, calls);
+            assertThat(result.cancellablePrecedingStages).containsExactly(left);
+            assertThat(result.cancel(mayInterrupt)).isTrue();
+            left.assertCancellation(true, mayInterrupt);
+            assertThat(right).isNotCompleted();
+            right.complete("cleanup");
+            executor.runAll();
+            assertThat(calls).hasValue(0);
+            assertThat(result.cancellablePrecedingStages).isEmpty();
          }
       }
    }
