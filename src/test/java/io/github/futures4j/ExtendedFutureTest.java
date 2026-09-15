@@ -11,8 +11,10 @@ import static net.sf.jstuff.core.validation.NullAnalysisHelper.asNonNull;
 import static org.assertj.core.api.Assertions.*;
 
 import java.io.IOException;
+import java.lang.ref.Reference;
 import java.lang.ref.WeakReference;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -24,6 +26,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
@@ -35,7 +38,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import io.github.futures4j.ExtendedFuture.InterruptibleFuturesTracker;
+import io.github.futures4j.ExtendedFuture.ExecutionBinding;
 import io.github.futures4j.ExtendedFuture.ReadOnlyMode;
 import io.github.futures4j.util.ThrowingBiConsumer;
 import io.github.futures4j.util.ThrowingBiFunction;
@@ -47,6 +50,8 @@ import net.sf.jstuff.core.ref.MutableObservableRef;
 import net.sf.jstuff.core.ref.MutableRef;
 
 /**
+ * Tests ExtendedFuture's public chaining, views, policies, and convenience methods.
+ *
  * @author <a href="https://sebthom.de/">Sebastian Thomschke</a>
  */
 class ExtendedFutureTest extends AbstractFutureTest {
@@ -75,27 +80,18 @@ class ExtendedFutureTest extends AbstractFutureTest {
    }
 
    final TrackingExecutor executor = new TrackingExecutor();
-   int trackedFuturesCountBeforeTest;
 
    @BeforeEach
+   @SuppressWarnings("resource") // Observing a production-owned scope must not close or otherwise modify it.
    void setup() {
-      InterruptibleFuturesTracker.purgeStaleEntries();
-      trackedFuturesCountBeforeTest = InterruptibleFuturesTracker.BY_ID.size();
+      assertThat(ExecutionBinding.ACTIVE.get()).as("a preceding test must not leave a construction scope").isNull();
    }
 
    @AfterEach
-   void tearDown() throws InterruptedException {
+   @SuppressWarnings("resource") // Observing a production-owned scope must not close or otherwise modify it.
+   void tearDown() {
       executor.shutdown();
-
-      final long maxTime = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-      while (!InterruptibleFuturesTracker.BY_ID.isEmpty() && System.nanoTime() < maxTime) {
-         System.gc(); // encourage the GC to clear WeakReferences
-         Thread.sleep(200); // short back-off before re-checking
-         InterruptibleFuturesTracker.purgeStaleEntries();
-      }
-
-      assertThat(InterruptibleFuturesTracker.BY_ID).as("InterruptibleFuturesTracker.BY_ID must not have new entries").hasSize(
-         trackedFuturesCountBeforeTest);
+      assertThat(ExecutionBinding.ACTIVE.get()).as("construction scopes must not escape a stage method").isNull();
    }
 
    @Test
@@ -1221,35 +1217,39 @@ class ExtendedFutureTest extends AbstractFutureTest {
    }
 
    @Test
-   void trackerEntryIsRemovedWhenStageCancelledEarly() throws Exception {
-      assertThat(InterruptibleFuturesTracker.BY_ID).isEmpty();
-
-      final ExecutorService exec = Executors.newSingleThreadExecutor();
-      final CountDownLatch stage0Started = new CountDownLatch(1);
-      final CountDownLatch stage0Block = new CountDownLatch(1);
-
-      // stage 0 blocks on the latch; ensure it has actually started so its tracker entry was consumed
-      final var fut0 = ExtendedFuture.runAsync(() -> {
-         stage0Started.countDown();
-         stage0Block.await();
-      }, exec).withInterruptibleStages(true);
-
-      // wait until stage 0 started and its InterruptibleFuturesTracker entry was looked up and removed
-      assertThat(stage0Started.await(5, TimeUnit.SECONDS)).isTrue();
-
-      // stage 1 will never start because we cancel it immediately
-      final var fut1 = fut0.thenRunAsync(() -> { /* never reached */ });
-
-      assertThat(InterruptibleFuturesTracker.BY_ID).hasSize(trackedFuturesCountBeforeTest + 1);
-
-      // cancel before stage 1 gets scheduled
-      fut1.cancel(true);
-
-      // give cancel-propagation a moment
-      Thread.sleep(200);
-
-      stage0Block.countDown();
-      exec.shutdownNow();
+   @SuppressWarnings("resource") // Observing a production-owned scope must not close or otherwise modify it.
+   void bindingIsReleasedWhenStageCancelledEarly() throws Exception {
+      final var observed = new AtomicReference<WeakReference<@Nullable ExecutionBinding>>();
+      final var source = new ExtendedFuture<String>() {
+         @Override
+         public <V> ExtendedFuture<V> newIncompleteFuture() {
+            final var binding = ExecutionBinding.ACTIVE.get();
+            final var result = super.<V>newIncompleteFuture();
+            if (binding != null && binding.owner == result) {
+               observed.set(new WeakReference<>(binding));
+            }
+            return result;
+         }
+      };
+      final var executions = new AtomicInteger();
+      // A direct executor makes an accidental post-cancellation invocation observable before the assertion.
+      final var result = source.thenRunAsync((Runnable) executions::incrementAndGet, Runnable::run);
+      final var reference = Objects.requireNonNull(observed.get());
+      assertThat(reference.get()).isNotNull();
+      assertThat(Objects.requireNonNull(reference.get()).owner).isSameAs(result);
+      result.cancel(true);
+      // The pending source may retain its native callback node; completion must discard that node and the skipped binding.
+      source.complete("source");
+      assertThat(executions).hasValue(0);
+      final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(MAX_WAIT_SECS);
+      while (reference.get() != null && System.nanoTime() < deadline) {
+         System.gc();
+         Thread.sleep(20);
+      }
+      assertThat(reference.get()).isNull();
+      assertThat(result).isCancelled();
+      Reference.reachabilityFence(source);
+      Reference.reachabilityFence(result);
    }
 
    @Test

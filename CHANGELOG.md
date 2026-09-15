@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+#### `ExtendedFuture`
+
+- Honor interruption policies for `completeAsync` tasks and recovery callbacks, including overlapping executions.
+- Preserve cancellation and caller interrupt intent across views and stage chains, including opted-in upstream inputs.
+- Reject null handlers and explicit executors immediately in recovery methods.
+- Prevent unexpected callback failures and preserve receiver settings with reentrant factories and either-stage operations.
+- Keep view outcomes consistent after forced completion through a view, and honor its configured executor in `completeAsync`.
+- Release unused stage references and reduce per-future memory and callback-tracking overhead.
+
 
 ## [1.1.3] 2025-10-11
 

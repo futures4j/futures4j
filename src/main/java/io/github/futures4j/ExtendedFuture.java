@@ -7,22 +7,26 @@ package io.github.futures4j;
 
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.lang.ref.Reference;
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
 import java.util.Collection;
+import java.util.IdentityHashMap;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
@@ -181,12 +185,141 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       }
    }
 
+   /** Connects a pre-created result to the JDK's iterative completion graph without calling complete on that result. */
+   private static final class CompletionRelay<V> extends CompletableFuture<@Nullable Void> {
+      private final CompletableFuture<V> result;
+
+      CompletionRelay(final CompletableFuture<V> result) {
+         this.result = result;
+      }
+
+      void completeFrom(final CompletionStage<V> stage) {
+         // Keep this receiver pending until its dependent is installed. The completed-source fast path can overwrite
+         // an earlier cancellation of our pre-created result; the pending-source path completes it conditionally.
+         thenCompose(unused -> stage);
+         complete(null);
+      }
+
+      @Override
+      @SuppressWarnings("unchecked")
+      public <U> CompletableFuture<U> newIncompleteFuture() {
+         // This private factory is called once, only by completeFrom's thenCompose, whose result type is always V.
+         return (CompletableFuture<U>) result;
+      }
+   }
+
+   /**
+    * Keeps native either-stage allocation on the receiver's factory, even when the other input is already completed.
+    * A native relay preserves iterative propagation without adding interruptible observer stages to that input.
+    */
+   private static final class EitherOperand<V> extends CompletableFuture<V> implements AutoCloseable {
+      private @Nullable ExtendedFuture<?> factorySource;
+
+      EitherOperand(final ExtendedFuture<?> factorySource, final CompletableFuture<V> other) {
+         this.factorySource = factorySource;
+         new CompletionRelay<>(this).completeFrom(other);
+      }
+
+      @Override
+      public <U> CompletableFuture<U> newIncompleteFuture() {
+         return Objects.requireNonNull(factorySource).newIncompleteFuture();
+      }
+
+      @Override
+      public void close() {
+         // Native stage construction has finished; a pending losing input must not keep the receiver alive through this adapter.
+         factorySource = null;
+      }
+   }
+
+   /** A removable weak subscription to a factory source's shared cleanup, with no strong reference to either future. */
+   private static final class FactoryRegistration extends WeakReference<@Nullable ExtendedFuture<?>> {
+      // The queue may outlive a source. Its entries and their registries must therefore contain no strong future references.
+      private static final ReferenceQueue<@Nullable ExtendedFuture<?>> STALE = new ReferenceQueue<>();
+      private final FactoryRegistrations owner;
+      private @Nullable FactoryRegistration previous;
+      private @Nullable FactoryRegistration next;
+
+      FactoryRegistration(final FactoryRegistrations owner, final ExtendedFuture<?> dependent) {
+         super(dependent, STALE);
+         this.owner = owner;
+      }
+
+      static void purgeStale() {
+         for (var reference = STALE.poll(); reference != null; reference = STALE.poll()) {
+            final var registration = (FactoryRegistration) reference;
+            registration.owner.remove(registration);
+         }
+      }
+   }
+
+   /** Shares one source observer across factory dependents, reclaiming both completed and abandoned registrations. */
+   private static final class FactoryRegistrations {
+      private @Nullable FactoryRegistration first;
+      private boolean closed;
+
+      synchronized boolean add(final FactoryRegistration registration) {
+         if (closed)
+            return false;
+         final var head = first;
+         registration.next = head;
+         if (head != null) {
+            head.previous = registration;
+         }
+         first = registration;
+         return true;
+      }
+
+      void close(final ExtendedFuture<?> source) {
+         while (true) {
+            final FactoryRegistration registration;
+            final ExtendedFuture<?> dependent;
+            synchronized (this) {
+               closed = true;
+               final var head = first;
+               if (head == null)
+                  return;
+               registration = head;
+               dependent = head.get();
+               remove(head);
+            }
+            // Removing another future's links must not run under this registry's lock. Its source is already terminal,
+            // so this edge is no longer needed even if the dependent is still forwarding cancellation to other inputs.
+            if (dependent != null) {
+               dependent.cancellablePrecedingStages.removeIf(stage -> stage == source);
+               if (dependent.factoryPredecessor == registration) {
+                  dependent.factoryPredecessor = null;
+               }
+            }
+         }
+      }
+
+      synchronized void remove(final FactoryRegistration registration) {
+         // Intrusive identity links make independent completion O(1), without a map entry or a scan through every sibling.
+         final var previous = registration.previous;
+         final var next = registration.next;
+         if (previous == null) {
+            if (first != registration)
+               return; // Another completion or stale-reference purge already removed it.
+            first = next;
+         } else {
+            previous.next = next;
+         }
+         if (next != null) {
+            next.previous = previous;
+         }
+         registration.previous = null;
+         registration.next = null;
+         registration.clear();
+      }
+   }
+
+   /** Owns interruption of all active computations that can complete this future. */
    static final class InterruptibleFuture<T> extends ExtendedFuture<T> {
 
-      /**
-       * Set by methods like {@link ExtendedFuture#interruptiblyRun(int, Runnable)}.
-       */
-      private @Nullable Thread executingThread;
+      // Under executingThreadLock: null when idle, a Thread for one registration, or an IdentityHashMap<Thread, Integer> of counts.
+      // Reusing one reference field avoids both a common-case registry allocation and extra fields on every future.
+      private @Nullable Object executingThreads;
       private final Object executingThreadLock = new Object();
 
       private InterruptibleFuture(final boolean cancellableByDependents, final boolean interruptibleStages,
@@ -199,11 +332,21 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          if (isDone())
             return isCancelled();
 
+         // Publishing cancellation can run user callbacks inline, so it must not hold the execution lock.
          final var cancelled = super.cancel(mayInterruptIfRunning);
+         // Use the local flag, not the preserved upstream intent: a non-interruptible view may have masked this task's interruption.
          if (cancelled && mayInterruptIfRunning) {
             synchronized (executingThreadLock) {
-               if (executingThread != null) {
-                  executingThread.interrupt();
+               final var executions = executingThreads;
+               // Interrupt under the cleanup lock so a deregistered worker cannot start unrelated work before a late interrupt.
+               if (executions instanceof Thread) {
+                  ((Thread) executions).interrupt();
+               } else if (executions != null) {
+                  @SuppressWarnings("unchecked") // The private state invariant above permits only a counted map here.
+                  final var threads = (Map<Thread, Integer>) executions;
+                  for (final var thread : threads.keySet()) {
+                     thread.interrupt();
+                  }
                }
             }
          }
@@ -211,8 +354,84 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       }
 
       @Override
+      public ExtendedFuture<T> completeAsync(final Supplier<? extends T> supplier, final Executor executor) {
+         // Preserve immediate null rejection before replacing the supplier with a non-null wrapper.
+         Objects.requireNonNull(supplier);
+         // Keep the Supplier type: the ThrowingSupplier overload would dispatch back to this method.
+         final Supplier<T> interruptibleSupplier = () -> {
+            // completeAsync owns this existing future; it does not need a dependent-stage execution binding.
+            registerExecutingThread();
+            try {
+               return supplier.get();
+            } finally {
+               unregisterExecutingThread();
+            }
+         };
+         // The inherited default-executor and throwing overloads already funnel through this overload once.
+         return super.completeAsync(interruptibleSupplier, executor);
+      }
+
+      @Override
       public boolean isInterruptible() {
          return true;
+      }
+
+      private void registerExecutingThread() {
+         if (!tryRegisterExecutingThread())
+            // Other callbacks can abort without a placeholder result. whenComplete must instead skip without throwing.
+            throw new CancellationException("Future already completed");
+      }
+
+      private boolean tryRegisterExecutingThread() {
+         synchronized (executingThreadLock) {
+            if (isDone())
+               // Cancellation may win after the JDK's completion check but before registration. Do not start untracked user code.
+               return false;
+            final var executions = executingThreads;
+            if (executions == null) {
+               executingThreads = Thread.currentThread();
+               return true;
+            }
+            final Map<Thread, Integer> threads;
+            if (executions instanceof Thread) {
+               // Promote even for same-thread reentry: inner cleanup must preserve the outer registration.
+               // Identity keys also protect against a custom Thread overriding equals().
+               threads = new IdentityHashMap<>(2);
+               threads.put((Thread) executions, 1);
+               executingThreads = threads;
+            } else {
+               @SuppressWarnings("unchecked") // Only the promotion above installs a map in this private slot.
+               final var registeredThreads = (Map<Thread, Integer>) executions;
+               threads = registeredThreads;
+            }
+            threads.merge(Thread.currentThread(), 1, Integer::sum);
+            return true;
+         }
+      }
+
+      private void unregisterExecutingThread() {
+         synchronized (executingThreadLock) {
+            // Another execution may have promoted the slot while this callback ran; cleanup must use its current representation.
+            final var executions = Objects.requireNonNull(executingThreads);
+            if (executions instanceof Thread) {
+               executingThreads = null;
+               return;
+            }
+            @SuppressWarnings("unchecked") // A non-null, non-Thread state is always the counted map.
+            final var threads = (Map<Thread, Integer>) executions;
+            final var thread = Thread.currentThread();
+            final int registrations = Objects.requireNonNull(threads.get(thread));
+            if (registrations > 1) {
+               threads.put(thread, registrations - 1);
+            } else {
+               threads.remove(thread);
+               if (threads.isEmpty()) {
+                  // Completed stages must not retain workers or the registry allocated only for their execution.
+                  executingThreads = null;
+               }
+               // Keep a nonempty promoted map to avoid repeated allocation as overlapping executions start and finish.
+            }
+         }
       }
    }
 
@@ -230,123 +449,89 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    }
 
    /**
-    * Internal helper to wire up interruptible stages.
-    *
-    * <p>
-    * Flow:
-    * </p>
-    * <ol>
-    * <li>{@link #generateFutureId()} puts a fresh id in a thread-local.</li>
-    * <li>{@link ExtendedFuture#newIncompleteFuture()} picks up that id and {@link #store(InterruptibleFuture) stores} the new
-    * {@link InterruptibleFuture} in a static map.</li>
-    * <li>When the stage begins, {@link #lookup(int)} removes the future from the map and records the current thread so {@code cancel(true)}
-    * can call {@link Thread#interrupt()}.</li>
-    * </ol>
+    * Binds one callback to its native dependent during construction, without a global registry or GC cleanup queue.
+    * The scope restores enclosing operations after reentry or failure; only its designated source factory may supply the owner.
     */
-   static final class InterruptibleFuturesTracker {
+   static final class ExecutionBinding implements AutoCloseable {
+      static final ThreadLocal<@Nullable ExecutionBinding> ACTIVE = new ThreadLocal<>();
 
-      private static final AtomicInteger ID_GENERATOR = new AtomicInteger();
-      private static final ThreadLocal<@Nullable Integer> ID_HOLDER = new ThreadLocal<>();
-      static final ConcurrentMap<Integer, FutureWeakRef> BY_ID = new ConcurrentHashMap<>(4);
+      private @Nullable ExecutionBinding previous;
+      private @Nullable ExtendedFuture<?> factorySource;
+      // Factory assignment precedes the JDK's publication of the callback, so an async worker needs no separate volatile handoff.
+      @Nullable
+      InterruptibleFuture<?> owner;
 
-      private static final class FutureWeakRef extends WeakReference<@Nullable InterruptibleFuture<?>> {
-         private static final ReferenceQueue<@Nullable InterruptibleFuture<?>> REF_QUEUE = new ReferenceQueue<>();
-         final int id; // immutable, used for fast removal
+      private ExecutionBinding(final @Nullable ExtendedFuture<?> factorySource) {
+         previous = ACTIVE.get();
+         this.factorySource = factorySource;
+         ACTIVE.set(this);
+      }
 
-         FutureWeakRef(final InterruptibleFuture<?> referent, final int id) {
-            super(referent, REF_QUEUE);
-            this.id = id;
+      static ExecutionBinding open(final ExtendedFuture<?> factorySource) {
+         return new ExecutionBinding(factorySource);
+      }
+
+      @SuppressWarnings("resource") // Checking for an enclosing scope does not take ownership of it.
+      static @Nullable ExecutionBinding suspend() {
+         // A null factory isolates known-owner operations. Ordinary private observations need no extra scope allocation.
+         return ACTIVE.get() == null ? null : new ExecutionBinding(null);
+      }
+
+      @SuppressWarnings("resource") // Borrowed from the calling stage method; only that method closes its construction scope.
+      static void store(final ExtendedFuture<?> factorySource, final InterruptibleFuture<?> owner) {
+         final var binding = ACTIVE.get();
+         if (binding != null && binding.factorySource == factorySource) {
+            // Consume before factory cleanup can invoke other code. An unrelated factory must not steal this callback.
+            // Keep the empty entry reusable; removing it makes the next operation allocate another ThreadLocalMap entry.
+            ACTIVE.set(null);
+            binding.factorySource = null;
+            binding.owner = owner;
          }
       }
 
-      static void purgeStaleEntries() {
-         for (var ref = FutureWeakRef.REF_QUEUE.poll(); ref != null; ref = FutureWeakRef.REF_QUEUE.poll()) {
-            final int id = ((FutureWeakRef) ref).id;
-            BY_ID.remove(id, ref);
-         }
+      InterruptibleFuture<?> takeOwner() {
+         final var result = Objects.requireNonNull(owner, "Callback has no factory owner");
+         discard();
+         return result;
       }
 
-      /**
-       * Generates a unique future ID and stores it in the ThreadLocal {@link #ID_HOLDER}.
-       * <p>
-       * The {@link #ID_HOLDER} is used to pass the ID to the {@link ExtendedFuture#newIncompleteFuture()} method,
-       * allowing it to store new incomplete future in the {@link #BY_ID} map via {@link #store(InterruptibleFuture)}.
-       *
-       * @return the generated unique future ID
-       */
-      static int generateFutureId() {
-         final var futureId = ID_GENERATOR.incrementAndGet();
-         ID_HOLDER.set(futureId);
-         return futureId;
+      void discard() {
+         // Once execution starts, its stack owns the future; a retained callback must not extend that ownership.
+         owner = null;
       }
 
-      /**
-       * Retrieves the {@link InterruptibleFuture} associated with the given ID.
-       * <p>
-       * This method is used by interruptible operations (e.g., {@link ExtendedFuture#interruptiblyRun(Runnable)})
-       * to fetch and bind the future to the current executing thread. The thread reference is required for enabling
-       * the {@link InterruptibleFuture#cancel(boolean)} method to interrupt the thread if cancellation is requested.
-       */
-      @SuppressWarnings("unchecked")
-      static <V> InterruptibleFuture<V> lookup(final int futureId) {
-         purgeStaleEntries();
-
-         final var ref = BY_ID.remove(futureId);
-         if (ref == null) // should never happen
-            throw new IllegalStateException("No future present with id " + futureId);
-
-         final var newFuture = ref.get();
-         if (newFuture == null) // should never happen
-            throw new IllegalStateException("No future present with id " + futureId);
-
-         return (InterruptibleFuture<V>) newFuture;
-      }
-
-      /**
-       * Used by {@link ExtendedFuture#newIncompleteFuture()} to store newly created incomplete stages in the {@link #BY_ID} map for later
-       * retrieval via {@link #lookup(int)} by interruptible operations (e.g., {@link ExtendedFuture#interruptiblyRun(Runnable)}).
-       * <p>
-       * This method requires that {@link #generateFutureId()} was called first as this method retrieves the future's ID from the
-       * ThreadLocal {@link #ID_HOLDER}.
-       */
-      static void store(final InterruptibleFuture<?> newFuture) {
-         final var futureId = ID_HOLDER.get();
-         ID_HOLDER.remove();
-         // potentially null for cases where #newIncompleteFuture() is used through code paths by super class not handled by this subclass
-         if (futureId != null) {
-            BY_ID.put(futureId, new FutureWeakRef(newFuture, futureId));
-         }
+      @Override
+      public void close() {
+         // Restore reentrant scopes, retaining only an empty entry at the outer boundary, never a binding or future.
+         ACTIVE.set(previous);
+         // A queued callback must retain neither the source nor a reentrant outer operation after construction returns.
+         previous = null;
+         factorySource = null;
       }
    }
 
    /**
     * Remembers the original {@code mayInterruptIfRunning} intent on the concrete stage instance being cancelled (useful when a
     * non-interruptible wrapper masks the flag for its own cancellation but we still want upstream propagation to honor the caller's
-    * intent).
+    * intent). Retained after cancellation so late wrappers and completion observers see the same intent.
+    * A null value means no intent was recorded; false must remain distinct from that unset state.
     */
-   private final AtomicReference<@Nullable Boolean> cancelInterruptIntent = new AtomicReference<>();
+   private volatile @Nullable Boolean cancelInterruptIntent;
 
    /**
     * Record the caller's cancel intent (mayInterruptIfRunning) if it has not been set yet.
     * Useful when a non-interruptible wrapper needs to preserve the original interrupt intent for upstream propagation.
     */
    private void rememberCancelInterruptIntentIfAbsent(final boolean mayInterruptIfRunning) {
-      cancelInterruptIntent.compareAndSet(null, Boolean.valueOf(mayInterruptIfRunning));
-   }
-
-   /**
-    * Consume and clear the stored caller cancel interrupt intent, or return the provided default if none was recorded.
-    */
-   private boolean consumeCancelInterruptIntentOrDefault(final boolean defaultMayInterruptIfRunning) {
-      final var intent = cancelInterruptIntent.getAndSet(null);
-      return intent == null ? defaultMayInterruptIfRunning : intent;
+      // Preserve the first recorded request, including false, when cancellation attempts race or reenter.
+      CANCEL_INTERRUPT_INTENT.compareAndSet(this, null, Boolean.valueOf(mayInterruptIfRunning));
    }
 
    /**
     * Peek at the stored caller cancel interrupt intent without clearing it, or return the provided default if none was recorded.
     */
    boolean getCancelInterruptIntentOrDefault(final boolean defaultMayInterruptIfRunning) {
-      final var intent = cancelInterruptIntent.get();
+      final var intent = cancelInterruptIntent;
       return intent == null ? defaultMayInterruptIfRunning : intent;
    }
 
@@ -362,6 +547,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       IGNORE_MUTATION
    }
 
+   /** A configurable view that delegates mutations but retains its own completion state for inherited reads and stage methods. */
    static class WrappingFuture<T> extends ExtendedFuture<T> {
 
       protected final CompletableFuture<T> wrapped;
@@ -389,10 +575,22 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
       @Override
       public boolean cancel(final boolean mayInterruptIfRunning) {
-         // Preserve the caller's original intent for upstream propagation even if this wrapper masks interrupts
-         if (wrapped instanceof ExtendedFuture) {
-            ((ExtendedFuture<?>) wrapped).rememberCancelInterruptIntentIfAbsent(mayInterruptIfRunning);
+         // Intermediate views can still appear pending after the original backing future has completed.
+         // Recording intent then would let a redundant cancel(true) change the cancellation being mirrored.
+         CompletableFuture<?> cancellationSource = wrapped;
+         while (cancellationSource instanceof WrappingFuture) {
+            cancellationSource = ((WrappingFuture<?>) cancellationSource).wrapped;
          }
+         if (!cancellationSource.isDone()) {
+            // Preserve the caller's original intent for upstream propagation even if this wrapper masks interrupts
+            super.rememberCancelInterruptIntentIfAbsent(mayInterruptIfRunning);
+            if (wrapped instanceof ExtendedFuture) {
+               // Read our own stored intent: an outer view may already have masked the argument passed to this wrapper.
+               final boolean requestedMayInterrupt = super.getCancelInterruptIntentOrDefault(mayInterruptIfRunning);
+               ((ExtendedFuture<?>) wrapped).rememberCancelInterruptIntentIfAbsent(requestedMayInterrupt);
+            }
+         }
+         // Still delegate to preserve read-only mutation checks and the backing future's completion notification behavior.
          return wrapped.cancel(mayInterruptIfRunning && isInterruptible());
       }
 
@@ -403,8 +601,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
       @Override
       public ExtendedFuture<T> completeAsync(final Supplier<? extends T> supplier) {
-         wrapped.completeAsync(supplier);
-         return this;
+         // Choose this view's executor, but keep the backing future as the completion owner.
+         return completeAsync(supplier, defaultExecutor());
       }
 
       @Override
@@ -415,8 +613,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
       @Override
       public ExtendedFuture<T> completeAsync(final ThrowingSupplier<? extends T, ?> supplier) {
-         wrapped.completeAsync(supplier);
-         return this;
+         // The Supplier cast avoids dispatching back to this more-specific overload.
+         return completeAsync((Supplier<? extends T>) supplier);
       }
 
       @Override
@@ -446,12 +644,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
                if (cause instanceof CancellationException) {
                   final boolean mayInterrupt = future instanceof ExtendedFuture //
                         && ((ExtendedFuture<?>) future).getCancelInterruptIntentOrDefault(false);
-                  // Preserve the original caller intent on the wrapped instance for upstream propagation
-                  if (wrapped instanceof ExtendedFuture) {
-                     ((ExtendedFuture<?>) wrapped).rememberCancelInterruptIntentIfAbsent(mayInterrupt);
-                  }
-                  // Cancel the wrapped future to preserve cancellation semantics
-                  wrapped.cancel(mayInterrupt && isInterruptible());
+                  cancel(mayInterrupt);
                } else {
                   wrapped.completeExceptionally(ex);
                }
@@ -461,13 +654,32 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       }
 
       @Override
+      boolean getCancelInterruptIntentOrDefault(final boolean defaultMayInterruptIfRunning) {
+         // The backing future owns the actual cancellation. Rejected read-only mutation attempts must not override its intent.
+         if (wrapped instanceof ExtendedFuture)
+            return ((ExtendedFuture<?>) wrapped).getCancelInterruptIntentOrDefault(defaultMayInterruptIfRunning);
+         return super.getCancelInterruptIntentOrDefault(defaultMayInterruptIfRunning);
+      }
+
+      @Override
       public void obtrudeException(final Throwable ex) {
+         // Delegate before touching our state so validation and read-only rejection remain authoritative.
          wrapped.obtrudeException(ex);
+         syncObtrudedOutcome();
       }
 
       @Override
       public void obtrudeValue(final T value) {
          wrapped.obtrudeValue(value);
+         syncObtrudedOutcome();
+      }
+
+      private <U> CompletableFuture<U> observeWrappedOutcome(final BiFunction<? super T, @Nullable Throwable, ? extends U> action) {
+         // Observe the backing instance, not this view's potentially stale outcome.
+         if (wrapped instanceof ExtendedFuture)
+            return ((ExtendedFuture<T>) wrapped).handleWithoutExecutionTracking(action);
+         // Other CompletableFuture implementations do not expose our private bypass; retain their normal dispatch.
+         return wrapped.handle(action);
       }
 
       @Override
@@ -475,8 +687,46 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          wrapped.orTimeout(timeout, unit);
          return this;
       }
+
+      private void syncObtrudedOutcome() {
+         // IGNORE_MUTATION can return normally without completing the backing future. Do not leave a pending observer in that case.
+         if (!wrapped.isDone())
+            return;
+
+         // Observe the actual outcome: delegation may have been ignored, or an inline callback may have replaced the requested outcome.
+         // handle preserves the original throwable; joining the backing future itself would wrap some failures in CompletionException.
+         boolean copiedCurrentOutcome;
+         do {
+            copiedCurrentOutcome = observeWrappedOutcome((value, ex) -> {
+               if (ex == null) {
+                  super.obtrudeValue(value);
+               } else {
+                  // Preserve the raw exception, including cancellation, rather than applying the constructor's cancellation normalization.
+                  super.obtrudeException(ex);
+               }
+               // Another call can change the backing future after this snapshot was taken but before we copied it.
+               // Compare identity: equal values can still be distinct results, and equals() must not run user code here.
+               return observeWrappedOutcome((currentValue, currentEx) -> currentValue == value && currentEx == ex).join();
+            }).join();
+            // These completed-source handles run inline; their joins retrieve our verification result, not the backing failure.
+            // Retry only the copy, never the original mutation. Locks would run completion callbacks under a shared lock.
+         }
+         while (!copiedCurrentOutcome);
+         // This repairs the forwarding chain after overlapping calls settle, not sibling views mutated through other references.
+      }
    }
 
+   // Share the atomic field accessor instead of allocating an AtomicReference for every future.
+   private static final VarHandle CANCEL_INTERRUPT_INTENT;
+   static {
+      try {
+         CANCEL_INTERRUPT_INTENT = MethodHandles.lookup().findVarHandle(ExtendedFuture.class, "cancelInterruptIntent", Boolean.class);
+      } catch (final ReflectiveOperationException ex) {
+         throw new ExceptionInInitializerError(ex);
+      }
+   }
+
+   // Initialize atomic access first: a user-supplied LoggerFinder can reenter this class during logger lookup.
    private static final Logger LOG = System.getLogger(ExtendedFuture.class.getName());
 
    /**
@@ -548,8 +798,12 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     * @return an {@link ExtendedFuture} wrapping the given future
     */
    public static <V> ExtendedFuture<V> from(final CompletableFuture<V> source) {
-      if (source instanceof ExtendedFuture)
-         return ((ExtendedFuture<V>) source).asCancellableByDependents(false);
+      if (source instanceof ExtendedFuture) {
+         final var extended = (ExtendedFuture<V>) source;
+         // Single-input anyOf can use our stage factory without passing through an instance stage method.
+         extended.clearCancellablePrecedingStagesOnCompletion();
+         return extended.asCancellableByDependents(false);
+      }
       return new WrappingFuture<>(source, false, true, source.defaultExecutor());
    }
 
@@ -675,6 +929,15 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    protected final boolean interruptibleStages;
    protected final Executor defaultExecutor;
 
+   // One observer owns the whole queue, including links discovered after stage construction.
+   private volatile boolean cancellationCleanupRegistered;
+   // Under cancellablePrecedingStages: overlapping cancel calls retain ownership even if callbacks obtrude another outcome.
+   private int cancellationForwarders;
+   // Also under the queue lock: retain accepted requests for late inputs, independently of an obtruded visible outcome.
+   private boolean cancellationAccepted;
+   private volatile @Nullable FactoryRegistrations factoryDependents;
+   private volatile @Nullable FactoryRegistration factoryPredecessor;
+
    /**
     * Creates a new {@code ExtendedFuture} with default settings.
     */
@@ -691,11 +954,16 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public ExtendedFuture<@Nullable Void> acceptEither(final CompletionStage<? extends T> other, final Consumer<? super T> action) {
-      if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.acceptEither(toExtendedFuture(other), result -> interruptiblyAccept(fId, result, action)));
+      Objects.requireNonNull(action);
+      try (var operand = prepareEitherOperand(other)) {
+         if (interruptibleStages) {
+            try (var binding = ExecutionBinding.open(this)) {
+               return withSecondPrecedingStage(super.acceptEither(operand == null ? other : operand, result -> interruptiblyAccept(binding,
+                  result, action)), other);
+            }
+         }
+         return withSecondPrecedingStage(super.acceptEither(operand == null ? other : operand, action), other);
       }
-      return toExtendedFuture(super.acceptEither(other, action));
    }
 
    public ExtendedFuture<@Nullable Void> acceptEither(final CompletionStage<? extends T> other,
@@ -705,22 +973,32 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public ExtendedFuture<@Nullable Void> acceptEitherAsync(final CompletionStage<? extends T> other, final Consumer<? super T> action) {
-      if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.acceptEitherAsync(toExtendedFuture(other), result -> interruptiblyAccept(fId, result, action)));
+      Objects.requireNonNull(action);
+      try (var operand = prepareEitherOperand(other)) {
+         if (interruptibleStages) {
+            try (var binding = ExecutionBinding.open(this)) {
+               return withSecondPrecedingStage(super.acceptEitherAsync(operand == null ? other : operand, result -> interruptiblyAccept(
+                  binding, result, action)), other);
+            }
+         }
+         return withSecondPrecedingStage(super.acceptEitherAsync(operand == null ? other : operand, action), other);
       }
-      return toExtendedFuture(super.acceptEitherAsync(other, action));
    }
 
    @Override
    public ExtendedFuture<@Nullable Void> acceptEitherAsync(final CompletionStage<? extends T> other, final Consumer<? super T> action,
          final Executor executor) {
-      if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.acceptEitherAsync(toExtendedFuture(other), result -> interruptiblyAccept(fId, result, action),
-            executor));
+      Objects.requireNonNull(action);
+      Objects.requireNonNull(executor);
+      try (var operand = prepareEitherOperand(other)) {
+         if (interruptibleStages) {
+            try (var binding = ExecutionBinding.open(this)) {
+               return withSecondPrecedingStage(super.acceptEitherAsync(operand == null ? other : operand, result -> interruptiblyAccept(
+                  binding, result, action), executor), other);
+            }
+         }
+         return withSecondPrecedingStage(super.acceptEitherAsync(operand == null ? other : operand, action, executor), other);
       }
-      return toExtendedFuture(super.acceptEitherAsync(other, action, executor));
    }
 
    public ExtendedFuture<@Nullable Void> acceptEitherAsync(final CompletionStage<? extends T> other,
@@ -757,11 +1035,16 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public <U> ExtendedFuture<U> applyToEither(final CompletionStage<? extends T> other, final Function<? super T, U> fn) {
-      if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.applyToEither(toExtendedFuture(other), result -> interruptiblyApply(fId, result, fn)));
+      Objects.requireNonNull(fn);
+      try (var operand = prepareEitherOperand(other)) {
+         if (interruptibleStages) {
+            try (var binding = ExecutionBinding.open(this)) {
+               return withSecondPrecedingStage(super.applyToEither(operand == null ? other : operand, result -> interruptiblyApply(binding,
+                  result, fn)), other);
+            }
+         }
+         return withSecondPrecedingStage(super.applyToEither(operand == null ? other : operand, fn), other);
       }
-      return toExtendedFuture(super.applyToEither(other, fn));
    }
 
    public <U> ExtendedFuture<U> applyToEither(final CompletionStage<? extends T> other, final ThrowingFunction<? super T, U, ?> fn) {
@@ -770,22 +1053,32 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public <U> ExtendedFuture<U> applyToEitherAsync(final CompletionStage<? extends T> other, final Function<? super T, U> fn) {
-      if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.applyToEitherAsync(toExtendedFuture(other), result -> interruptiblyApply(fId, result, fn)));
+      Objects.requireNonNull(fn);
+      try (var operand = prepareEitherOperand(other)) {
+         if (interruptibleStages) {
+            try (var binding = ExecutionBinding.open(this)) {
+               return withSecondPrecedingStage(super.applyToEitherAsync(operand == null ? other : operand, result -> interruptiblyApply(
+                  binding, result, fn)), other);
+            }
+         }
+         return withSecondPrecedingStage(super.applyToEitherAsync(operand == null ? other : operand, fn), other);
       }
-      return toExtendedFuture(super.applyToEitherAsync(other, fn));
    }
 
    @Override
    public <U> ExtendedFuture<U> applyToEitherAsync(final CompletionStage<? extends T> other, final Function<? super T, U> fn,
          final Executor executor) {
-      if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.applyToEitherAsync(toExtendedFuture(other), result -> interruptiblyApply(fId, result, fn),
-            executor));
+      Objects.requireNonNull(fn);
+      Objects.requireNonNull(executor);
+      try (var operand = prepareEitherOperand(other)) {
+         if (interruptibleStages) {
+            try (var binding = ExecutionBinding.open(this)) {
+               return withSecondPrecedingStage(super.applyToEitherAsync(operand == null ? other : operand, result -> interruptiblyApply(
+                  binding, result, fn), executor), other);
+            }
+         }
+         return withSecondPrecedingStage(super.applyToEitherAsync(operand == null ? other : operand, fn, executor), other);
       }
-      return toExtendedFuture(super.applyToEitherAsync(other, fn, executor));
    }
 
    public <U> ExtendedFuture<U> applyToEitherAsync(final CompletionStage<? extends T> other, final ThrowingFunction<? super T, U, ?> fn) {
@@ -821,8 +1114,9 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    /**
     * Returns an {@link ExtendedFuture} that shares the result with this future but ensures
-    * that this future cannot be interrupted, i.e., calling {@code cancel(true)} will not
-    * result in a thread interruption.
+    * that this future's task cannot be interrupted, i.e., calling {@code cancel(true)} on the returned view will not
+    * interrupt the thread executing this task.
+    * Cancellation still forwards the caller's original interrupt intent to preceding stages that allow cancellation by dependents.
     * <p>
     * If the future is already non-interruptible, this instance is returned.
     *
@@ -943,6 +1237,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     * {@inheritDoc}
     * <p>
     * If the preceding stage has {@link #isCancellableByDependents()} set, the cancellation will also propagate to the preceding stage.
+    * Each stage applies its own interruption policy without changing the caller's interrupt intent for preceding stages.
+    * Replacing the outcome through obtrusion does not retract an accepted cancellation request, including for late composed inputs.
     * </p>
     *
     * @param mayInterruptIfRunning {@code true} if the thread executing this task should be
@@ -958,19 +1254,28 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
          return isCancelled();
 
       rememberCancelInterruptIntentIfAbsent(mayInterruptIfRunning);
-      final boolean cancelled = super.cancel(mayInterruptIfRunning && isInterruptible());
-      if (cancelled && !cancellablePrecedingStages.isEmpty()) {
-         // Use the original caller intent if captured by a wrapper; otherwise, use the given flag
-         final boolean requestedMayInterrupt = consumeCancelInterruptIntentOrDefault(mayInterruptIfRunning);
-         cancellablePrecedingStages.removeIf(stage -> {
-            if (!stage.isDone()) {
-               final boolean stageInterruptible = !(stage instanceof ExtendedFuture) || ((ExtendedFuture<?>) stage).isInterruptible();
-               stage.cancel(requestedMayInterrupt && stageInterruptible);
-            }
-            return true;
-         });
+      synchronized (cancellablePrecedingStages) {
+         cancellationForwarders++;
       }
-      return cancelled;
+      try {
+         // Publish outside the lock: callbacks may reenter cancellation or replace its outcome through obtrusion.
+         final boolean cancelled = super.cancel(mayInterruptIfRunning && isInterruptible());
+         if (cancelled) {
+            synchronized (cancellablePrecedingStages) {
+               cancellationAccepted = true;
+            }
+            forwardPendingCancellation();
+         }
+         return cancelled;
+      } finally {
+         synchronized (cancellablePrecedingStages) {
+            cancellationForwarders--;
+         }
+         // A losing attempt may have deferred the winner's cleanup too. The last forwarder must finish it in either case.
+         if (isDone()) {
+            cleanupAfterCompletion();
+         }
+      }
    }
 
    /**
@@ -981,8 +1286,12 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     */
    @Override
    public boolean complete(final T value) {
-      cancellablePrecedingStages.clear();
-      return super.complete(value);
+      final boolean completed = super.complete(value);
+      // A losing attempt can run inside a cancellation observer, before cancel() has traversed the links.
+      if (completed) {
+         cleanupAfterCompletion();
+      }
+      return completed;
    }
 
    /**
@@ -990,6 +1299,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     *
     * @param supplier the supplier function to produce the completion value
     * @return this {@code ExtendedFuture} for method chaining
+    * @see #completeAsync(Supplier, Executor)
     */
    @Override
    public ExtendedFuture<T> completeAsync(final Supplier<? extends T> supplier) {
@@ -999,6 +1309,9 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    /**
     * Completes this future with the result of the given supplier function, running it asynchronously using the specified executor.
+    * <p>
+    * If this future is interruptible, {@code cancel(true)} can interrupt all running suppliers completing it.
+    * Concurrent completion attempts retain their first-result-wins behavior.
     *
     * @param supplier the supplier function to produce the completion value
     * @param executor the executor to use for asynchronous execution
@@ -1007,6 +1320,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @Override
    public ExtendedFuture<T> completeAsync(final Supplier<? extends T> supplier, final Executor executor) {
       super.completeAsync(supplier, executor);
+      // A directly requested newIncompleteFuture can be completed asynchronously without passing through a stage method.
+      clearCancellablePrecedingStagesOnCompletion();
       return this;
    }
 
@@ -1039,8 +1354,29 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     */
    @Override
    public boolean completeExceptionally(final Throwable ex) {
-      cancellablePrecedingStages.clear();
-      return super.completeExceptionally(ex);
+      final boolean completed = super.completeExceptionally(ex);
+      // Preserve links on both a losing attempt and immediate null rejection; neither completes this future.
+      if (completed) {
+         cleanupAfterCompletion();
+      }
+      return completed;
+   }
+
+   private static <U> CompletionStage<U> composeWithCancellation(final AtomicReference<@Nullable ExtendedFuture<?>> handoff,
+         final CompletionStage<U> stage) {
+      if (stage instanceof ExtendedFuture) {
+         final var nested = (ExtendedFuture<?>) stage;
+         if (nested.isCancellableByDependents() && !nested.isDone()) {
+            // Each side arrives once. A non-null exchange here is the result; in registerComposedResult it is the nested stage.
+            // This handles inline mappers as well as callbacks that run after thenCompose has returned, without waiting.
+            final var result = handoff.getAndSet(nested);
+            if (result != null) {
+               handoff.set(null);
+               registerCancellablePrecedingStage(result, nested);
+            }
+         }
+      }
+      return stage;
    }
 
    @Override
@@ -1076,7 +1412,9 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public ExtendedFuture<T> copy() {
-      return toExtendedFuture(super.copy());
+      try (var ignored = ExecutionBinding.suspend()) {
+         return toExtendedFuture(super.copy());
+      }
    }
 
    @Override
@@ -1084,8 +1422,30 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       return defaultExecutor;
    }
 
+   /**
+    * {@inheritDoc}
+    * <p>
+    * When interruptible stages are enabled, cancelling the returned stage with {@code cancel(true)} can interrupt its running recovery
+    * callback. Recovery still executes synchronously.
+    */
    @Override
    public ExtendedFuture<T> exceptionally(final Function<Throwable, ? extends T> fn) {
+      // Preserve immediate argument rejection before the non-null callback wrapper hides the original handler.
+      Objects.requireNonNull(fn);
+      if (interruptibleStages) {
+         try (var binding = ExecutionBinding.open(this)) {
+            // An already failed source can invoke the callback inline, so associate its owning stage before delegating.
+            // handle also observes success, unlike exceptionally. This releases the unused association without an extra dependent.
+            return toExtendedFuture(super.handle((result, ex) -> {
+               if (ex == null) {
+                  // No user code runs on success, so there is no execution to register or wait for GC to reclaim.
+                  binding.discard();
+                  return result;
+               }
+               return interruptiblyApply(binding, ex, fn);
+            }));
+         }
+      }
       return toExtendedFuture(super.exceptionally(fn));
    }
 
@@ -1095,6 +1455,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    /**
     * This method emulates the {@link CompletableFuture}'s exceptionallyAsync method introduced in Java 12.
+    *
+    * @see #exceptionallyAsync(Function, Executor)
     */
    // @Override
    public ExtendedFuture<T> exceptionallyAsync(final Function<Throwable, ? extends T> fn) {
@@ -1104,14 +1466,27 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    /**
     * This method emulates the {@link CompletableFuture}'s exceptionallyAsync method introduced in Java 12.
+    * <p>
+    * Successful completion passes through synchronously. Cancellation of the returned future cancels its private recovery work;
+    * when interruptible stages are enabled, {@code cancel(true)} can interrupt a running recovery callback.
     */
    // @Override
    public ExtendedFuture<T> exceptionallyAsync(final Function<Throwable, ? extends T> fn, final Executor executor) {
-      // emulate exceptionallyAsync introduced in Java 12
-      return handle((result, ex) -> ex == null // Only schedule asynchronously for exceptional completion; pass through success synchronously
-            ? completedFuture(result)
-            : ExtendedFuture.<T>supplyAsync(() -> fn.apply(ex), executor)) //
-               .thenCompose(f -> f);
+      // Validate before deferring stage creation, including when recovery will be skipped on success.
+      Objects.requireNonNull(fn);
+      Objects.requireNonNull(executor);
+      // completeAsync does not screen executors. Super supplies the JDK's common-pool fallback, not our configured default.
+      final var recoveryExecutor = executor == ForkJoinPool.commonPool() ? super.defaultExecutor() : executor;
+      return recover((result, error) -> {
+         // Private work carries cancellation, but callback interruption belongs to the public result and its views.
+         final var task = new ExtendedFuture<T>(true, false, defaultExecutor);
+         registerCancellablePrecedingStage(result, task);
+         if (!result.isDone()) {
+            final Supplier<T> recovery = () -> result.applyRecovery(error, fn);
+            task.completeAsync(recovery, recoveryExecutor);
+         }
+         return task;
+      });
    }
 
    public ExtendedFuture<T> exceptionallyAsync(final ThrowingFunction<Throwable, ? extends T, ?> fn) {
@@ -1124,11 +1499,20 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    /**
     * This method emulates the {@link CompletableFuture}'s exceptionallyCompose method introduced in Java 12.
+    * <p>
+    * Recovery executes synchronously, but its callback belongs to the returned future for interruption and cancellation,
+    * with the same nested-stage cancellation policy as {@link #exceptionallyComposeAsync(Function, Executor)}.
     */
    // @Override
    public ExtendedFuture<T> exceptionallyCompose(final Function<Throwable, ? extends CompletionStage<T>> fn) {
-      // emulate exceptionallyCompose introduced in Java 12
-      return handle((result, ex) -> ex == null ? ExtendedFuture.completedFuture(result) : fn.apply(ex)).thenCompose(f -> f);
+      Objects.requireNonNull(fn);
+      return recover((result, error) -> {
+         // Synchronous recovery has no queued private task: the public result owns both the mapper and its nested-stage link.
+         final CompletionStage<T> nested = result.applyRecovery(error, fn);
+         // The mapper may have cancelled its owner before returning. Registration still forwards that intent to opted-in stages.
+         registerCancellablePrecedingStage(result, nested);
+         return nested;
+      });
    }
 
    public ExtendedFuture<T> exceptionallyCompose(final ThrowingFunction<Throwable, ? extends CompletionStage<T>, ?> fn) {
@@ -1137,6 +1521,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    /**
     * This method emulates the {@link CompletableFuture}'s exceptionallyComposeAsync method introduced in Java 12.
+    *
+    * @see #exceptionallyComposeAsync(Function, Executor)
     */
    // @Override
    public ExtendedFuture<T> exceptionallyComposeAsync(final Function<Throwable, ? extends CompletionStage<T>> fn) {
@@ -1146,14 +1532,29 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    /**
     * This method emulates the {@link CompletableFuture}'s exceptionallyComposeAsync method introduced in Java 12.
+    * <p>
+    * Successful completion passes through synchronously. Cancellation of the returned future cancels its private recovery work;
+    * when interruptible stages are enabled, {@code cancel(true)} can interrupt a running recovery callback.
+    * A stage returned by the callback is cancelled only if it is an {@link ExtendedFuture} that permits cancellation by dependents.
     */
    // @Override
    public ExtendedFuture<T> exceptionallyComposeAsync(final Function<Throwable, ? extends CompletionStage<T>> fn, final Executor executor) {
-      // emulate exceptionallyComposeAsync introduced in Java 12
-      return handle((result, ex) -> ex == null // Apply mapping function asynchronously only for exceptional completion
-            ? completedFuture(result)
-            : ExtendedFuture.<CompletionStage<T>>supplyAsync(() -> fn.apply(ex), executor).thenCompose(f2 -> f2)) //
-               .thenCompose(f -> f);
+      // Keep the same immediate validation as value recovery; wrapping a null callback would otherwise hide it.
+      Objects.requireNonNull(fn);
+      Objects.requireNonNull(executor);
+      return recover((result, error) -> {
+         // The public result tracks the mapper. Private composition only forwards cancellation to opted-in nested stages,
+         // preserving the caller's original intent even when a view masks interruption of the mapper itself.
+         final var trigger = new ExtendedFuture<Throwable>(true, false, defaultExecutor);
+         final Function<Throwable, CompletionStage<T>> mapper = failure -> result.applyRecovery(failure, fn);
+         final ExtendedFuture<T> recovery = trigger.thenComposeAsync(mapper, executor);
+         registerCancellablePrecedingStage(result, recovery);
+         // The exception is the mapper's input, not the trigger's failure. Even an inline executor must see the cancellation link.
+         if (!result.isDone()) {
+            trigger.complete(error);
+         }
+         return recovery;
+      });
    }
 
    public ExtendedFuture<T> exceptionallyComposeAsync(final ThrowingFunction<Throwable, ? extends CompletionStage<T>, ?> fn) {
@@ -1351,8 +1752,9 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @Override
    public <U> ExtendedFuture<U> handle(final BiFunction<? super T, @Nullable Throwable, ? extends U> fn) {
       if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.handle((result, ex) -> interruptiblyHandle(fId, result, ex, fn)));
+         try (var binding = ExecutionBinding.open(this)) {
+            return toExtendedFuture(super.handle((result, ex) -> interruptiblyHandle(binding, result, ex, fn)));
+         }
       }
       return toExtendedFuture(super.handle(fn));
    }
@@ -1360,8 +1762,9 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @Override
    public <U> ExtendedFuture<U> handleAsync(final BiFunction<? super T, @Nullable Throwable, ? extends U> fn) {
       if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.handleAsync((result, ex) -> interruptiblyHandle(fId, result, ex, fn)));
+         try (var binding = ExecutionBinding.open(this)) {
+            return toExtendedFuture(super.handleAsync((result, ex) -> interruptiblyHandle(binding, result, ex, fn)));
+         }
       }
       return toExtendedFuture(super.handleAsync(fn));
    }
@@ -1369,134 +1772,118 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @Override
    public <U> ExtendedFuture<U> handleAsync(final BiFunction<? super T, @Nullable Throwable, ? extends U> fn, final Executor executor) {
       if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.handleAsync((result, ex) -> interruptiblyHandle(fId, result, ex, fn), executor));
+         try (var binding = ExecutionBinding.open(this)) {
+            return toExtendedFuture(super.handleAsync((result, ex) -> interruptiblyHandle(binding, result, ex, fn), executor));
+         }
       }
       return toExtendedFuture(super.handleAsync(fn, executor));
    }
 
-   private void interruptiblyAccept(final int futureId, final T result, final Consumer<? super T> action) {
-      final var f = InterruptibleFuturesTracker.lookup(futureId);
-      synchronized (f.executingThreadLock) {
-         f.executingThread = Thread.currentThread();
+   /**
+    * Observes this future's outcome without tracking the callback for interruption.
+    * Only for internal observations whose dependent stage is not exposed to callers for cancellation.
+    */
+   private <U> ExtendedFuture<U> handleWithoutExecutionTracking(final BiFunction<? super T, @Nullable Throwable, ? extends U> fn) {
+      try (var ignored = ExecutionBinding.suspend()) {
+         // Super bypasses handle overrides but retains the virtual stage factory and its allocation and policy choices.
+         return toExtendedFuture(super.handle(fn));
       }
+   }
+
+   private void interruptiblyAccept(final ExecutionBinding binding, final T result, final Consumer<? super T> action) {
+      final var f = binding.takeOwner();
+      f.registerExecutingThread();
       try {
          action.accept(result);
       } finally {
-         synchronized (f.executingThreadLock) {
-            f.executingThread = null;
-         }
+         f.unregisterExecutingThread();
       }
    }
 
-   private <U> void interruptiblyAcceptBoth(final int futureId, final T result, final U otherResult,
+   private <U> void interruptiblyAcceptBoth(final ExecutionBinding binding, final T result, final U otherResult,
          final BiConsumer<? super T, ? super U> action) {
-      final var f = InterruptibleFuturesTracker.lookup(futureId);
-      synchronized (f.executingThreadLock) {
-         f.executingThread = Thread.currentThread();
-      }
+      final var f = binding.takeOwner();
+      f.registerExecutingThread();
       try {
          action.accept(result, otherResult);
       } finally {
-         synchronized (f.executingThreadLock) {
-            f.executingThread = null;
-         }
+         f.unregisterExecutingThread();
       }
    }
 
-   private <U> U interruptiblyApply(final int futureId, final T result, final Function<? super T, ? extends U> fn) {
-      final var f = InterruptibleFuturesTracker.lookup(futureId);
-      synchronized (f.executingThreadLock) {
-         f.executingThread = Thread.currentThread();
-      }
+   // Recovery consumes Throwable while normal mapping consumes T; execution tracking does not depend on the input type.
+   private <I, U> U interruptiblyApply(final ExecutionBinding binding, final I result, final Function<? super I, ? extends U> fn) {
+      return interruptiblyApply(binding.takeOwner(), result, fn);
+   }
+
+   private <I, U> U interruptiblyApply(final InterruptibleFuture<?> f, final I result, final Function<? super I, ? extends U> fn) {
+      f.registerExecutingThread();
       try {
          return fn.apply(result);
       } finally {
-         synchronized (f.executingThreadLock) {
-            f.executingThread = null;
-         }
+         f.unregisterExecutingThread();
       }
    }
 
-   private <U, V> V interruptiblyCombine(final int futureId, final T result, final U otherResult,
+   private <U, V> V interruptiblyCombine(final ExecutionBinding binding, final T result, final U otherResult,
          final BiFunction<? super T, ? super U, ? extends V> fn) {
-      final var f = InterruptibleFuturesTracker.lookup(futureId);
-      synchronized (f.executingThreadLock) {
-         f.executingThread = Thread.currentThread();
-      }
+      final var f = binding.takeOwner();
+      f.registerExecutingThread();
       try {
          return fn.apply(result, otherResult);
       } finally {
-         synchronized (f.executingThreadLock) {
-            f.executingThread = null;
-         }
+         f.unregisterExecutingThread();
       }
    }
 
-   private <U> U interruptiblyHandle(final int futureId, final T result, final @Nullable Throwable ex,
+   private <U> U interruptiblyHandle(final ExecutionBinding binding, final T result, final @Nullable Throwable ex,
          final BiFunction<? super T, @Nullable Throwable, ? extends U> fn) {
-      final var f = InterruptibleFuturesTracker.lookup(futureId);
-      synchronized (f.executingThreadLock) {
-         f.executingThread = Thread.currentThread();
-      }
+      final var f = binding.takeOwner();
+      f.registerExecutingThread();
       try {
          return fn.apply(result, ex);
       } finally {
-         synchronized (f.executingThreadLock) {
-            f.executingThread = null;
-         }
+         f.unregisterExecutingThread();
       }
    }
 
-   private void interruptiblyRun(final int futureId, final Runnable action) {
-      final var f = InterruptibleFuturesTracker.lookup(futureId);
-      synchronized (f.executingThreadLock) {
-         f.executingThread = Thread.currentThread();
-      }
+   private void interruptiblyRun(final ExecutionBinding binding, final Runnable action) {
+      final var f = binding.takeOwner();
+      f.registerExecutingThread();
       try {
          action.run();
       } finally {
-         synchronized (f.executingThreadLock) {
-            f.executingThread = null;
-         }
+         f.unregisterExecutingThread();
       }
    }
 
-   private <U> CompletionStage<U> interruptiblyThenCompose(final int futureId, final T result,
+   private <U> CompletionStage<U> interruptiblyThenCompose(final ExecutionBinding binding, final T result,
          final Function<? super T, ? extends CompletionStage<U>> fn) {
-      final var f = InterruptibleFuturesTracker.lookup(futureId);
-      synchronized (f.executingThreadLock) {
-         f.executingThread = Thread.currentThread();
-      }
+      final var f = binding.takeOwner();
+      f.registerExecutingThread();
 
       try {
          final var stage = fn.apply(result);
-         if (stage instanceof ExtendedFuture) {
-            final var ef = (ExtendedFuture<?>) stage;
-            if (ef.isCancellableByDependents()) {
-               f.cancellablePrecedingStages.add(ef);
-            }
-         }
+         // Only async composition uses this path: the JDK conditionally completes its result, even with a direct executor.
+         // Synchronous composition instead delays inline linking until its factory returns, preserving an earlier cancellation.
+         registerCancellablePrecedingStage(f, stage);
          return stage;
       } finally {
-         synchronized (f.executingThreadLock) {
-            f.executingThread = null;
-         }
+         f.unregisterExecutingThread();
       }
    }
 
-   private void interruptiblyWhenComplete(final int futureId, final @Nullable T result, final @Nullable Throwable ex,
+   private void interruptiblyWhenComplete(final ExecutionBinding binding, final @Nullable T result, final @Nullable Throwable ex,
          final BiConsumer<? super @Nullable T, ? super @Nullable Throwable> action) {
-      final var f = InterruptibleFuturesTracker.lookup(futureId);
-      synchronized (f.executingThreadLock) {
-         f.executingThread = Thread.currentThread();
-      }
+      final var f = binding.takeOwner();
+      if (!f.tryRegisterExecutingThread())
+         // The JDK suppresses callback failures on the source exception even if the returned stage is already done.
+         // Skipping must not add our internal abort exception; failures from user code below still propagate.
+         return;
       try {
          action.accept(result, ex);
       } finally {
-         synchronized (f.executingThreadLock) {
-            f.executingThread = null;
-         }
+         f.unregisterExecutingThread();
       }
    }
 
@@ -1571,15 +1958,33 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       final ExtendedFuture<V> newFuture;
       if (interruptibleStages) {
          final var newInterruptibleFuture = new InterruptibleFuture<V>(cancellableByDependents, interruptibleStages, defaultExecutor);
-         InterruptibleFuturesTracker.store(newInterruptibleFuture);
+         ExecutionBinding.store(this, newInterruptibleFuture);
          newFuture = newInterruptibleFuture;
       } else {
          newFuture = new ExtendedFuture<>(cancellableByDependents, interruptibleStages, defaultExecutor);
       }
       if (cancellableByDependents && !isDone()) {
+         // This result is not exposed yet, so only links discovered later need registration's cancellation recheck.
          newFuture.cancellablePrecedingStages.add(this);
+         // Do not observe it here: native construction fast paths can publish a result without notifying existing dependents.
+         // Observe the source instead, so plain JDK entry points such as single-input anyOf also release their source links.
+         registerFactoryDependent(newFuture);
       }
       return newFuture;
+   }
+
+   @Override
+   public void obtrudeException(final Throwable ex) {
+      // Delegate first: rejected null exceptions must not discard a pending factory result's cancellation link.
+      super.obtrudeException(ex);
+      cleanupAfterCompletion();
+   }
+
+   @Override
+   public void obtrudeValue(final T value) {
+      super.obtrudeValue(value);
+      // A bare factory result has no terminal observer of its own; forced completion must release its registration too.
+      cleanupAfterCompletion();
    }
 
    /**
@@ -1601,10 +2006,11 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @Override
    public ExtendedFuture<@Nullable Void> runAfterBoth(final CompletionStage<?> other, final Runnable action) {
       if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.runAfterBoth(toExtendedFuture(other), () -> interruptiblyRun(fId, action)));
+         try (var binding = ExecutionBinding.open(this)) {
+            return withSecondPrecedingStage(super.runAfterBoth(toExtendedFuture(other), () -> interruptiblyRun(binding, action)), other);
+         }
       }
-      return toExtendedFuture(super.runAfterBoth(other, action));
+      return withSecondPrecedingStage(super.runAfterBoth(other, action), other);
    }
 
    public ExtendedFuture<@Nullable Void> runAfterBoth(final CompletionStage<?> other, final ThrowingRunnable<?> action) {
@@ -1614,19 +2020,23 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @Override
    public ExtendedFuture<@Nullable Void> runAfterBothAsync(final CompletionStage<?> other, final Runnable action) {
       if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.runAfterBothAsync(toExtendedFuture(other), () -> interruptiblyRun(fId, action)));
+         try (var binding = ExecutionBinding.open(this)) {
+            return withSecondPrecedingStage(super.runAfterBothAsync(toExtendedFuture(other), () -> interruptiblyRun(binding, action)),
+               other);
+         }
       }
-      return toExtendedFuture(super.runAfterBothAsync(other, action));
+      return withSecondPrecedingStage(super.runAfterBothAsync(other, action), other);
    }
 
    @Override
    public ExtendedFuture<@Nullable Void> runAfterBothAsync(final CompletionStage<?> other, final Runnable action, final Executor executor) {
       if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.runAfterBothAsync(toExtendedFuture(other), () -> interruptiblyRun(fId, action), executor));
+         try (var binding = ExecutionBinding.open(this)) {
+            return withSecondPrecedingStage(super.runAfterBothAsync(toExtendedFuture(other), () -> interruptiblyRun(binding, action),
+               executor), other);
+         }
       }
-      return toExtendedFuture(super.runAfterBothAsync(other, action, executor));
+      return withSecondPrecedingStage(super.runAfterBothAsync(other, action, executor), other);
    }
 
    public ExtendedFuture<@Nullable Void> runAfterBothAsync(final CompletionStage<?> other, final ThrowingRunnable<?> action) {
@@ -1640,11 +2050,16 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public ExtendedFuture<@Nullable Void> runAfterEither(final CompletionStage<?> other, final Runnable action) {
-      if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.runAfterEither(toExtendedFuture(other), () -> interruptiblyRun(fId, action)));
+      Objects.requireNonNull(action);
+      try (var operand = prepareEitherOperand(other)) {
+         if (interruptibleStages) {
+            try (var binding = ExecutionBinding.open(this)) {
+               return withSecondPrecedingStage(super.runAfterEither(operand == null ? other : operand, () -> interruptiblyRun(binding,
+                  action)), other);
+            }
+         }
+         return withSecondPrecedingStage(super.runAfterEither(operand == null ? other : operand, action), other);
       }
-      return toExtendedFuture(super.runAfterEither(other, action));
    }
 
    public ExtendedFuture<@Nullable Void> runAfterEither(final CompletionStage<?> other, final ThrowingRunnable<?> action) {
@@ -1653,21 +2068,32 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public ExtendedFuture<@Nullable Void> runAfterEitherAsync(final CompletionStage<?> other, final Runnable action) {
-      if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.runAfterEitherAsync(toExtendedFuture(other), () -> interruptiblyRun(fId, action)));
+      Objects.requireNonNull(action);
+      try (var operand = prepareEitherOperand(other)) {
+         if (interruptibleStages) {
+            try (var binding = ExecutionBinding.open(this)) {
+               return withSecondPrecedingStage(super.runAfterEitherAsync(operand == null ? other : operand, () -> interruptiblyRun(binding,
+                  action)), other);
+            }
+         }
+         return withSecondPrecedingStage(super.runAfterEitherAsync(operand == null ? other : operand, action), other);
       }
-      return toExtendedFuture(super.runAfterEitherAsync(other, action));
    }
 
    @Override
    public ExtendedFuture<@Nullable Void> runAfterEitherAsync(final CompletionStage<?> other, final Runnable action,
          final Executor executor) {
-      if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.runAfterEitherAsync(toExtendedFuture(other), () -> interruptiblyRun(fId, action), executor));
+      Objects.requireNonNull(action);
+      Objects.requireNonNull(executor);
+      try (var operand = prepareEitherOperand(other)) {
+         if (interruptibleStages) {
+            try (var binding = ExecutionBinding.open(this)) {
+               return withSecondPrecedingStage(super.runAfterEitherAsync(operand == null ? other : operand, () -> interruptiblyRun(binding,
+                  action), executor), other);
+            }
+         }
+         return withSecondPrecedingStage(super.runAfterEitherAsync(operand == null ? other : operand, action, executor), other);
       }
-      return toExtendedFuture(super.runAfterEitherAsync(other, action, executor));
    }
 
    public ExtendedFuture<@Nullable Void> runAfterEitherAsync(final CompletionStage<?> other, final ThrowingRunnable<?> action) {
@@ -1682,8 +2108,9 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @Override
    public ExtendedFuture<@Nullable Void> thenAccept(final Consumer<? super T> action) {
       if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.thenAccept(result -> interruptiblyAccept(fId, result, action)));
+         try (var binding = ExecutionBinding.open(this)) {
+            return toExtendedFuture(super.thenAccept(result -> interruptiblyAccept(binding, result, action)));
+         }
       }
       return toExtendedFuture(super.thenAccept(action));
    }
@@ -1695,8 +2122,9 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @Override
    public ExtendedFuture<@Nullable Void> thenAcceptAsync(final Consumer<? super T> action) {
       if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.thenAcceptAsync(result -> interruptiblyAccept(fId, result, action)));
+         try (var binding = ExecutionBinding.open(this)) {
+            return toExtendedFuture(super.thenAcceptAsync(result -> interruptiblyAccept(binding, result, action)));
+         }
       }
       return toExtendedFuture(super.thenAcceptAsync(action));
    }
@@ -1704,8 +2132,9 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @Override
    public ExtendedFuture<@Nullable Void> thenAcceptAsync(final Consumer<? super T> action, final Executor executor) {
       if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.thenAcceptAsync(result -> interruptiblyAccept(fId, result, action), executor));
+         try (var binding = ExecutionBinding.open(this)) {
+            return toExtendedFuture(super.thenAcceptAsync(result -> interruptiblyAccept(binding, result, action), executor));
+         }
       }
       return toExtendedFuture(super.thenAcceptAsync(action, executor));
    }
@@ -1722,11 +2151,12 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    public <U> ExtendedFuture<@Nullable Void> thenAcceptBoth(final CompletionStage<? extends U> other,
          final BiConsumer<? super T, ? super U> action) {
       if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.thenAcceptBoth(toExtendedFuture(other), (result, otherResult) -> interruptiblyAcceptBoth(fId, result,
-            otherResult, action)));
+         try (var binding = ExecutionBinding.open(this)) {
+            return withSecondPrecedingStage(super.thenAcceptBoth(toExtendedFuture(other), (result, otherResult) -> interruptiblyAcceptBoth(
+               binding, result, otherResult, action)), other);
+         }
       }
-      return toExtendedFuture(super.thenAcceptBoth(other, action));
+      return withSecondPrecedingStage(super.thenAcceptBoth(other, action), other);
    }
 
    public <U> ExtendedFuture<@Nullable Void> thenAcceptBoth(final CompletionStage<? extends U> other,
@@ -1738,22 +2168,24 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    public <U> ExtendedFuture<@Nullable Void> thenAcceptBothAsync(final CompletionStage<? extends U> other,
          final BiConsumer<? super T, ? super U> action) {
       if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.thenAcceptBothAsync(toExtendedFuture(other), (result, otherResult) -> interruptiblyAcceptBoth(fId,
-            result, otherResult, action)));
+         try (var binding = ExecutionBinding.open(this)) {
+            return withSecondPrecedingStage(super.thenAcceptBothAsync(toExtendedFuture(other), (result,
+                  otherResult) -> interruptiblyAcceptBoth(binding, result, otherResult, action)), other);
+         }
       }
-      return toExtendedFuture(super.thenAcceptBothAsync(other, action));
+      return withSecondPrecedingStage(super.thenAcceptBothAsync(other, action), other);
    }
 
    @Override
    public <U> ExtendedFuture<@Nullable Void> thenAcceptBothAsync(final CompletionStage<? extends U> other,
          final BiConsumer<? super T, ? super U> action, final Executor executor) {
       if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.thenAcceptBothAsync(toExtendedFuture(other), (result, otherResult) -> interruptiblyAcceptBoth(fId,
-            result, otherResult, action), executor));
+         try (var binding = ExecutionBinding.open(this)) {
+            return withSecondPrecedingStage(super.thenAcceptBothAsync(toExtendedFuture(other), (result,
+                  otherResult) -> interruptiblyAcceptBoth(binding, result, otherResult, action), executor), other);
+         }
       }
-      return toExtendedFuture(super.thenAcceptBothAsync(other, action, executor));
+      return withSecondPrecedingStage(super.thenAcceptBothAsync(other, action, executor), other);
    }
 
    public <U> ExtendedFuture<@Nullable Void> thenAcceptBothAsync(final CompletionStage<? extends U> other,
@@ -1769,8 +2201,9 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @Override
    public <U> ExtendedFuture<U> thenApply(final Function<? super T, ? extends U> fn) {
       if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.thenApply(result -> interruptiblyApply(fId, result, fn)));
+         try (var binding = ExecutionBinding.open(this)) {
+            return toExtendedFuture(super.thenApply(result -> interruptiblyApply(binding, result, fn)));
+         }
       }
       return toExtendedFuture(super.thenApply(fn));
    }
@@ -1782,8 +2215,9 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @Override
    public <U> ExtendedFuture<U> thenApplyAsync(final Function<? super T, ? extends U> fn) {
       if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.thenApplyAsync(result -> interruptiblyApply(fId, result, fn)));
+         try (var binding = ExecutionBinding.open(this)) {
+            return toExtendedFuture(super.thenApplyAsync(result -> interruptiblyApply(binding, result, fn)));
+         }
       }
       return toExtendedFuture(super.thenApplyAsync(fn));
    }
@@ -1791,8 +2225,9 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @Override
    public <U> ExtendedFuture<U> thenApplyAsync(final Function<? super T, ? extends U> fn, final Executor executor) {
       if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.thenApplyAsync(result -> interruptiblyApply(fId, result, fn), executor));
+         try (var binding = ExecutionBinding.open(this)) {
+            return toExtendedFuture(super.thenApplyAsync(result -> interruptiblyApply(binding, result, fn), executor));
+         }
       }
       return toExtendedFuture(super.thenApplyAsync(fn, executor));
    }
@@ -1809,11 +2244,12 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    public <U, V> ExtendedFuture<V> thenCombine(final CompletionStage<? extends U> other,
          final BiFunction<? super T, ? super U, ? extends V> fn) {
       if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.thenCombine(toExtendedFuture(other), (result, otherResult) -> interruptiblyCombine(fId, result,
-            otherResult, fn)));
+         try (var binding = ExecutionBinding.open(this)) {
+            return withSecondPrecedingStage(super.thenCombine(toExtendedFuture(other), (result, otherResult) -> interruptiblyCombine(
+               binding, result, otherResult, fn)), other);
+         }
       }
-      return toExtendedFuture(super.thenCombine(other, fn));
+      return withSecondPrecedingStage(super.thenCombine(other, fn), other);
    }
 
    public <U, V> ExtendedFuture<V> thenCombine(final CompletionStage<? extends U> other,
@@ -1825,22 +2261,24 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    public <U, V> ExtendedFuture<V> thenCombineAsync(final CompletionStage<? extends U> other,
          final BiFunction<? super T, ? super U, ? extends V> fn) {
       if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.thenCombineAsync(toExtendedFuture(other), (result, otherResult) -> interruptiblyCombine(fId, result,
-            otherResult, fn)));
+         try (var binding = ExecutionBinding.open(this)) {
+            return withSecondPrecedingStage(super.thenCombineAsync(toExtendedFuture(other), (result, otherResult) -> interruptiblyCombine(
+               binding, result, otherResult, fn)), other);
+         }
       }
-      return toExtendedFuture(super.thenCombineAsync(other, fn));
+      return withSecondPrecedingStage(super.thenCombineAsync(other, fn), other);
    }
 
    @Override
    public <U, V> ExtendedFuture<V> thenCombineAsync(final CompletionStage<? extends U> other,
          final BiFunction<? super T, ? super U, ? extends V> fn, final Executor executor) {
       if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.thenCombineAsync(toExtendedFuture(other), (result, otherResult) -> interruptiblyCombine(fId, result,
-            otherResult, fn), executor));
+         try (var binding = ExecutionBinding.open(this)) {
+            return withSecondPrecedingStage(super.thenCombineAsync(toExtendedFuture(other), (result, otherResult) -> interruptiblyCombine(
+               binding, result, otherResult, fn), executor), other);
+         }
       }
-      return toExtendedFuture(super.thenCombineAsync(other, fn, executor));
+      return withSecondPrecedingStage(super.thenCombineAsync(other, fn, executor), other);
    }
 
    public <U, V> ExtendedFuture<V> thenCombineAsync(final CompletionStage<? extends U> other,
@@ -1855,11 +2293,20 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public <U> ExtendedFuture<U> thenCompose(final Function<? super T, ? extends CompletionStage<U>> fn) {
+      // Wrapping must not turn immediate null rejection into a deferred callback failure.
+      Objects.requireNonNull(fn);
+      // The JDK's completed-source fast path can overwrite a cancelled result if we cancel the nested stage before it returns.
+      // Both interruption policies need this handoff; the non-interruptible path does not need an execution binding.
+      final var handoff = new AtomicReference<@Nullable ExtendedFuture<?>>();
       if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.thenCompose(result -> interruptiblyThenCompose(fId, result, fn)));
+         try (var binding = ExecutionBinding.open(this)) {
+            // Track only user mapper execution; the handoff owns linking its returned stage after that execution has ended.
+            return registerComposedResult(toExtendedFuture(super.thenCompose(result -> composeWithCancellation(handoff, interruptiblyApply(
+               binding, result, fn)))), handoff);
+         }
       }
-      return toExtendedFuture(super.thenCompose(fn));
+      return registerComposedResult(toExtendedFuture(super.thenCompose(result -> composeWithCancellation(handoff, fn.apply(result)))),
+         handoff);
    }
 
    public <U> ExtendedFuture<U> thenCompose(final ThrowingFunction<? super T, ? extends CompletionStage<U>, ?> fn) {
@@ -1868,20 +2315,30 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public <U> ExtendedFuture<U> thenComposeAsync(final Function<? super T, ? extends CompletionStage<U>> fn) {
+      // Validate before substituting the callback, as in the synchronous overload.
+      Objects.requireNonNull(fn);
       if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.thenComposeAsync(result -> interruptiblyThenCompose(fId, result, fn)));
+         try (var binding = ExecutionBinding.open(this)) {
+            return toExtendedFuture(super.thenComposeAsync(result -> interruptiblyThenCompose(binding, result, fn)));
+         }
       }
-      return toExtendedFuture(super.thenComposeAsync(fn));
+      final var handoff = new AtomicReference<@Nullable ExtendedFuture<?>>();
+      return registerComposedResult(toExtendedFuture(super.thenComposeAsync(result -> composeWithCancellation(handoff, fn.apply(result)))),
+         handoff);
    }
 
    @Override
    public <U> ExtendedFuture<U> thenComposeAsync(final Function<? super T, ? extends CompletionStage<U>> fn, final Executor executor) {
+      // Validate before substituting the callback, as in the synchronous overload.
+      Objects.requireNonNull(fn);
       if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.thenComposeAsync(result -> interruptiblyThenCompose(fId, result, fn), executor));
+         try (var binding = ExecutionBinding.open(this)) {
+            return toExtendedFuture(super.thenComposeAsync(result -> interruptiblyThenCompose(binding, result, fn), executor));
+         }
       }
-      return toExtendedFuture(super.thenComposeAsync(fn, executor));
+      final var handoff = new AtomicReference<@Nullable ExtendedFuture<?>>();
+      return registerComposedResult(toExtendedFuture(super.thenComposeAsync(result -> composeWithCancellation(handoff, fn.apply(result)),
+         executor)), handoff);
    }
 
    public <U> ExtendedFuture<U> thenComposeAsync(final ThrowingFunction<? super T, ? extends CompletionStage<U>, ?> fn) {
@@ -1896,8 +2353,9 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @Override
    public ExtendedFuture<@Nullable Void> thenRun(final Runnable action) {
       if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.thenRun(() -> interruptiblyRun(fId, action)));
+         try (var binding = ExecutionBinding.open(this)) {
+            return toExtendedFuture(super.thenRun(() -> interruptiblyRun(binding, action)));
+         }
       }
       return toExtendedFuture(super.thenRun(action));
    }
@@ -1909,8 +2367,9 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @Override
    public ExtendedFuture<@Nullable Void> thenRunAsync(final Runnable action) {
       if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.thenRunAsync(() -> interruptiblyRun(fId, action)));
+         try (var binding = ExecutionBinding.open(this)) {
+            return toExtendedFuture(super.thenRunAsync(() -> interruptiblyRun(binding, action)));
+         }
       }
       return toExtendedFuture(super.thenRunAsync(action));
    }
@@ -1918,8 +2377,9 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @Override
    public ExtendedFuture<@Nullable Void> thenRunAsync(final Runnable action, final Executor executor) {
       if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.thenRunAsync(() -> interruptiblyRun(fId, action), executor));
+         try (var binding = ExecutionBinding.open(this)) {
+            return toExtendedFuture(super.thenRunAsync(() -> interruptiblyRun(binding, action), executor));
+         }
       }
       return toExtendedFuture(super.thenRunAsync(action, executor));
    }
@@ -1932,18 +2392,247 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
       return thenRunAsync((Runnable) action, executor);
    }
 
+   private void clearCancellablePrecedingStagesOnCompletion() {
+      if (factoryDependents == null && cancellablePrecedingStages.isEmpty())
+         return;
+      if (isDone()) {
+         cleanupAfterCompletion();
+         return;
+      }
+      if (cancellationCleanupRegistered)
+         return;
+      synchronized (cancellablePrecedingStages) {
+         // Late nested-stage registration can race the stage-return boundary. Claim the shared observer only once.
+         if (cancellationCleanupRegistered)
+            return;
+         cancellationCleanupRegistered = true;
+      }
+      // Attaching an observer can drain other callbacks, so do not hold the registration lock during attachment.
+      // Minimal stages avoid our virtual factory, interruption tracking and ExtendedFuture's per-stage policy state.
+      super.minimalCompletionStage().whenComplete((value, ex) -> cleanupAfterCompletion());
+   }
+
+   private void cleanupAfterCompletion() {
+      if (factoryPredecessor == null && factoryDependents == null && cancellablePrecedingStages.isEmpty())
+         return;
+      final FactoryRegistrations dependents;
+      final FactoryRegistration predecessor;
+      final boolean forwardRemaining;
+      synchronized (cancellablePrecedingStages) {
+         // Outgoing edges point to this completed source and can be released independently of incoming cancellation forwarding.
+         dependents = factoryDependents;
+         factoryDependents = null;
+         // isCancelled describes the current outcome, not whether an accepted cancellation is still forwarding upstream.
+         if (cancellationForwarders == 0) {
+            forwardRemaining = cancellationAccepted;
+            if (!forwardRemaining) {
+               cancellablePrecedingStages.clear();
+            }
+            predecessor = factoryPredecessor;
+            factoryPredecessor = null;
+         } else {
+            forwardRemaining = false;
+            predecessor = null;
+         }
+      }
+      if (forwardRemaining) {
+         // A handoff may have arrived after cancel's first traversal. Resolve it even when the last active attempt lost.
+         forwardPendingCancellation();
+      }
+      if (predecessor != null) {
+         predecessor.owner.remove(predecessor);
+      }
+      if (dependents != null) {
+         dependents.close(this);
+      }
+      FactoryRegistration.purgeStale();
+   }
+
+   private void forwardPendingCancellation() {
+      final Future<?>[] preceding;
+      synchronized (cancellablePrecedingStages) {
+         if (cancellablePrecedingStages.isEmpty())
+            return;
+         // Transfer ownership before calling other futures. Concurrent handoffs either remain for the final drain or
+         // observe cancellationAccepted and forward themselves; completion cleanup cannot erase this private snapshot.
+         preceding = cancellablePrecedingStages.toArray(Future<?>[]::new);
+         cancellablePrecedingStages.clear();
+      }
+      final boolean requestedMayInterrupt = getCancelInterruptIntentOrDefault(false);
+      for (final var stage : preceding) {
+         if (!stage.isDone()) {
+            // Each input applies its own interruption policy while retaining the caller's original intent for earlier stages.
+            stage.cancel(requestedMayInterrupt);
+         }
+      }
+   }
+
+   private void registerFactoryDependent(final ExtendedFuture<?> dependent) {
+      FactoryRegistration.purgeStale();
+      final FactoryRegistrations registrations;
+      synchronized (cancellablePrecedingStages) {
+         // Completion can win after the factory's pending check. Do not reopen a detached, completed source's registry.
+         if (isDone()) {
+            registrations = null;
+         } else {
+            var current = factoryDependents;
+            if (current == null) {
+               current = new FactoryRegistrations();
+               factoryDependents = current;
+            }
+            registrations = current;
+         }
+      }
+      if (registrations == null) {
+         dependent.cancellablePrecedingStages.removeIf(stage -> stage == this);
+         return;
+      }
+      final var registration = new FactoryRegistration(registrations, dependent);
+      // Publish the reverse handle before the source observer can drain it; the child is not otherwise exposed yet.
+      dependent.factoryPredecessor = registration;
+      if (!registrations.add(registration)) {
+         dependent.cancellablePrecedingStages.removeIf(stage -> stage == this);
+         dependent.factoryPredecessor = null;
+         registration.clear();
+         return;
+      }
+      // An unused factory result may become unreachable before this method returns. Keep it alive until insertion, otherwise
+      // another registration could purge its GC-enqueued reference before it is linked, leaving an unpurgeable stale entry.
+      Reference.reachabilityFence(dependent);
+      // Reuse any existing incoming-link observer. Attachment may run callbacks, so neither registry lock is held here.
+      clearCancellablePrecedingStagesOnCompletion();
+   }
+
+   /** Executes a recovery callback on its public owner, independently of the private stages that carry its outcome. */
+   private <U> U applyRecovery(final Throwable error, final Function<Throwable, ? extends U> fn) {
+      if (this instanceof InterruptibleFuture)
+         // A non-interruptible view masks cancellation of this owner, but not the intent forwarded to other stages.
+         return interruptiblyApply((InterruptibleFuture<?>) this, error, fn);
+      if (isDone())
+         // Explicit completion can win while private work is queued, even though it does not cancel that work's future.
+         throw new CancellationException("Future already completed");
+      return fn.apply(error);
+   }
+
+   /** Creates the public recovery owner and relays the selected outcome through native, stack-safe dependent stages. */
+   private ExtendedFuture<T> recover(final BiFunction<ExtendedFuture<T>, Throwable, CompletionStage<T>> recover) {
+      // Establish the public owner first, preserving the source's stage factory, flags, executor and upstream opt-in.
+      final ExtendedFuture<T> result;
+      try (var ignored = ExecutionBinding.suspend()) {
+         // This callback already knows its owner; reentrant recovery must not consume an enclosing mapper's binding.
+         result = this.<T>newIncompleteFuture();
+      }
+      final var selected = this.<CompletionStage<T>>handleWithoutExecutionTracking((value, error) -> {
+         if (result.isDone())
+            return result;
+         if (error == null)
+            // Preserve this observation's value, rather than rereading a source that can be obtruded concurrently.
+            return CompletableFuture.completedFuture(value);
+         return recover.apply(result, error);
+      });
+      // Let the JDK propagate both success and failure iteratively. Calling result.complete from an observer recurses
+      // through long chains; completeWith also changes wrapped CancellationExceptions into direct cancellation.
+      new CompletionRelay<>(result).completeFrom(selected.thenComposeWithoutExecutionTracking(Function.identity()));
+      return toExtendedFuture(result);
+   }
+
+   /** Only for private flattening: execution tracking and cancellation ownership are established by the recovery operation. */
+   private <U> ExtendedFuture<U> thenComposeWithoutExecutionTracking(final Function<? super T, ? extends CompletionStage<U>> fn) {
+      try (var ignored = ExecutionBinding.suspend()) {
+         return toExtendedFuture(super.thenCompose(fn));
+      }
+   }
+
+   private static void registerCancellablePrecedingStage(final ExtendedFuture<?> result, final CompletionStage<?> preceding) {
+      if (!(preceding instanceof ExtendedFuture))
+         return;
+      final var stage = (ExtendedFuture<?>) preceding;
+      if (stage == result || !stage.isCancellableByDependents() || stage.isDone())
+         return;
+
+      boolean added = false;
+      if (!result.isDone()) {
+         synchronized (result.cancellablePrecedingStages) {
+            // Serialize insertion with cancellation's ownership transfer, not with calls into the preceding stage.
+            result.cancellablePrecedingStages.add(stage);
+         }
+         added = true;
+         // Cancellation can finish traversing the queue before this insertion. Rechecking closes that missed-link race.
+         if (!result.isDone()) {
+            // Reuse the result's observer when another input already requested cleanup.
+            result.clearCancellablePrecedingStagesOnCompletion();
+            return;
+         }
+      }
+      final boolean cancelled;
+      synchronized (result.cancellablePrecedingStages) {
+         if (result.cancellationForwarders != 0) {
+            // super.cancel may still be inside an obtruding callback, so its acceptance is not yet known. Keep the handoff
+            // until the active attempts resolve it; do not infer cancellation ownership from the replacement outcome.
+            if (!added) {
+               result.cancellablePrecedingStages.add(stage);
+            }
+            return;
+         }
+         // Identity matters for equal-but-distinct inputs. A missing inserted link is already owned by a cleanup/forwarding snapshot.
+         if (added && !result.cancellablePrecedingStages.removeIf(candidate -> candidate == stage))
+            return;
+         cancelled = result.cancellationAccepted;
+      }
+      if (cancelled && !stage.isDone()) {
+         // An accepted cancel request survives obtrusion; merely completing exceptionally with CancellationException is not a request.
+         stage.cancel(result.getCancelInterruptIntentOrDefault(false));
+      }
+   }
+
+   private static <V> ExtendedFuture<V> registerComposedResult(final ExtendedFuture<V> result,
+         final AtomicReference<@Nullable ExtendedFuture<?>> handoff) {
+      // The mapper may already have returned its nested stage before the superclass call returns the actual result.
+      final var nested = handoff.getAndSet(result);
+      if (nested != null) {
+         handoff.set(null);
+         registerCancellablePrecedingStage(result, nested);
+      }
+      return result;
+   }
+
    private <V> ExtendedFuture<V> toExtendedFuture(final CompletionStage<V> source) {
-      if (source instanceof ExtendedFuture)
-         return (ExtendedFuture<V>) source;
+      if (source instanceof ExtendedFuture) {
+         final var result = (ExtendedFuture<V>) source;
+         // The JDK has finished constructing a returned stage, so observing it here cannot strand the cleanup callback.
+         result.clearCancellablePrecedingStagesOnCompletion();
+         return result;
+      }
       final var cf = source.toCompletableFuture();
       return new WrappingFuture<>(cf, cancellableByDependents, interruptibleStages, cf.defaultExecutor());
+   }
+
+   private <V> @Nullable EitherOperand<V> prepareEitherOperand(final CompletionStage<V> other) {
+      // A natively completed receiver always supplies the either-stage factory; only a pending receiver needs a bridge.
+      // Use the inherited state, not a subclass's possibly overridden isDone(), to make this allocation decision.
+      if (super.isDone())
+         return null;
+      // A pending other input can complete before the native call selects its factory, so it cannot safely bypass the bridge.
+      // Conversion is argument validation. Do it before the relay can turn an invocation error into an exceptional outcome.
+      return new EitherOperand<>(this, Objects.requireNonNull(other.toCompletableFuture()));
+   }
+
+   private <V> ExtendedFuture<V> withSecondPrecedingStage(final CompletionStage<V> source, final CompletionStage<?> other) {
+      final var result = toExtendedFuture(source);
+      // The receiver is already linked by newIncompleteFuture. Only the original other input can grant cancellation permission;
+      // an internal conversion wrapper must not opt an ordinary CompletionStage into cancellation.
+      if (other != this) {
+         registerCancellablePrecedingStage(result, other);
+      }
+      return result;
    }
 
    @Override
    public ExtendedFuture<T> whenComplete(final BiConsumer<? super @Nullable T, ? super @Nullable Throwable> action) {
       if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.whenComplete((result, ex) -> interruptiblyWhenComplete(fId, result, ex, action)));
+         try (var binding = ExecutionBinding.open(this)) {
+            return toExtendedFuture(super.whenComplete((result, ex) -> interruptiblyWhenComplete(binding, result, ex, action)));
+         }
       }
       return toExtendedFuture(super.whenComplete(action));
    }
@@ -1955,8 +2644,9 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @Override
    public ExtendedFuture<T> whenCompleteAsync(final BiConsumer<? super @Nullable T, ? super @Nullable Throwable> action) {
       if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.whenCompleteAsync((result, ex) -> interruptiblyWhenComplete(fId, result, ex, action)));
+         try (var binding = ExecutionBinding.open(this)) {
+            return toExtendedFuture(super.whenCompleteAsync((result, ex) -> interruptiblyWhenComplete(binding, result, ex, action)));
+         }
       }
       return toExtendedFuture(super.whenCompleteAsync(action));
    }
@@ -1965,8 +2655,10 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    public ExtendedFuture<T> whenCompleteAsync(final BiConsumer<? super @Nullable T, ? super @Nullable Throwable> action,
          final Executor executor) {
       if (interruptibleStages) {
-         final var fId = InterruptibleFuturesTracker.generateFutureId();
-         return toExtendedFuture(super.whenCompleteAsync((result, ex) -> interruptiblyWhenComplete(fId, result, ex, action), executor));
+         try (var binding = ExecutionBinding.open(this)) {
+            return toExtendedFuture(super.whenCompleteAsync((result, ex) -> interruptiblyWhenComplete(binding, result, ex, action),
+               executor));
+         }
       }
       return toExtendedFuture(super.whenCompleteAsync(action, executor));
    }
@@ -1982,7 +2674,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    /**
     * Returns an {@link ExtendedFuture} that shares the result with this future, but with the
-    * specified {@link Executor} as the default for asynchronous operations of subsequent stages.
+    * specified {@link Executor} as the default for asynchronous operations of the returned future and its subsequent stages.
     *
     * @param defaultExecutor the default {@link Executor} for async tasks, must not be {@code null}
     * @return a new {@code ExtendedFuture} with the specified executor, or {@code this} if the
