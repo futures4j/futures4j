@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Honor interruption policies for `completeAsync` tasks and recovery callbacks, including overlapping executions.
 - Preserve cancellation and caller interrupt intent across views and stage chains, including opted-in upstream inputs.
-- Reject null callbacks and explicit executors immediately in recovery methods and async factories.
+- Reject null callbacks and explicit executors immediately in stage methods and async factories.
 - Prevent unexpected callback failures and preserve receiver settings with reentrant factories and either-stage operations.
 - Preserve input outcomes and avoid unnecessary wrappers in `thenCombine`, `thenAcceptBoth`, and `runAfterBoth`.
 - Keep view outcomes consistent after forced completion through a view, and honor its configured executor in `completeAsync`.

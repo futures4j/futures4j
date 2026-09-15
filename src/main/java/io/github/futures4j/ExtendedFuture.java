@@ -1786,6 +1786,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public <U> ExtendedFuture<U> handle(final BiFunction<? super T, @Nullable Throwable, ? extends U> fn) {
+      // Validate before wrapping, which would hide a null callback from the JDK.
+      Objects.requireNonNull(fn);
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
             return toExtendedFuture(super.handle((result, ex) -> interruptiblyHandle(binding, result, ex, fn)));
@@ -1796,6 +1798,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public <U> ExtendedFuture<U> handleAsync(final BiFunction<? super T, @Nullable Throwable, ? extends U> fn) {
+      Objects.requireNonNull(fn);
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
             return toExtendedFuture(super.handleAsync((result, ex) -> interruptiblyHandle(binding, result, ex, fn)));
@@ -1806,6 +1809,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public <U> ExtendedFuture<U> handleAsync(final BiFunction<? super T, @Nullable Throwable, ? extends U> fn, final Executor executor) {
+      Objects.requireNonNull(fn);
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
             return toExtendedFuture(super.handleAsync((result, ex) -> interruptiblyHandle(binding, result, ex, fn), executor));
@@ -2040,6 +2044,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public ExtendedFuture<@Nullable Void> runAfterBoth(final CompletionStage<?> other, final Runnable action) {
+      // Validate before wrapping, which would hide a null callback from the JDK.
+      Objects.requireNonNull(action);
       // All "both" variants use this receiver's factory, unlike "either". Keep the input itself so the JDK observes
       // its current outcome and original cancellation exception rather than an adapter's copied outcome.
       if (interruptibleStages) {
@@ -2056,6 +2062,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public ExtendedFuture<@Nullable Void> runAfterBothAsync(final CompletionStage<?> other, final Runnable action) {
+      Objects.requireNonNull(action);
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
             return withSecondPrecedingStage(super.runAfterBothAsync(other, () -> interruptiblyRun(binding, action)), other);
@@ -2066,6 +2073,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public ExtendedFuture<@Nullable Void> runAfterBothAsync(final CompletionStage<?> other, final Runnable action, final Executor executor) {
+      Objects.requireNonNull(action);
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
             return withSecondPrecedingStage(super.runAfterBothAsync(other, () -> interruptiblyRun(binding, action), executor), other);
@@ -2142,6 +2150,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public ExtendedFuture<@Nullable Void> thenAccept(final Consumer<? super T> action) {
+      // Validate before wrapping, which would hide a null callback from the JDK.
+      Objects.requireNonNull(action);
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
             return toExtendedFuture(super.thenAccept(result -> interruptiblyAccept(binding, result, action)));
@@ -2156,6 +2166,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public ExtendedFuture<@Nullable Void> thenAcceptAsync(final Consumer<? super T> action) {
+      Objects.requireNonNull(action);
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
             return toExtendedFuture(super.thenAcceptAsync(result -> interruptiblyAccept(binding, result, action)));
@@ -2166,6 +2177,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public ExtendedFuture<@Nullable Void> thenAcceptAsync(final Consumer<? super T> action, final Executor executor) {
+      Objects.requireNonNull(action);
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
             return toExtendedFuture(super.thenAcceptAsync(result -> interruptiblyAccept(binding, result, action), executor));
@@ -2185,6 +2197,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @Override
    public <U> ExtendedFuture<@Nullable Void> thenAcceptBoth(final CompletionStage<? extends U> other,
          final BiConsumer<? super T, ? super U> action) {
+      // Validate before wrapping, which would hide a null callback from the JDK.
+      Objects.requireNonNull(action);
       // The receiver owns the dependent in all three variants. Adapting other would add a completion step and copy its outcome.
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
@@ -2203,6 +2217,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @Override
    public <U> ExtendedFuture<@Nullable Void> thenAcceptBothAsync(final CompletionStage<? extends U> other,
          final BiConsumer<? super T, ? super U> action) {
+      Objects.requireNonNull(action);
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
             return withSecondPrecedingStage(super.thenAcceptBothAsync(other, (result, otherResult) -> interruptiblyAcceptBoth(binding,
@@ -2215,6 +2230,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @Override
    public <U> ExtendedFuture<@Nullable Void> thenAcceptBothAsync(final CompletionStage<? extends U> other,
          final BiConsumer<? super T, ? super U> action, final Executor executor) {
+      Objects.requireNonNull(action);
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
             return withSecondPrecedingStage(super.thenAcceptBothAsync(other, (result, otherResult) -> interruptiblyAcceptBoth(binding,
@@ -2236,6 +2252,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public <U> ExtendedFuture<U> thenApply(final Function<? super T, ? extends U> fn) {
+      // Validate before wrapping, which would hide a null callback from the JDK.
+      Objects.requireNonNull(fn);
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
             return toExtendedFuture(super.thenApply(result -> interruptiblyApply(binding, result, fn)));
@@ -2250,6 +2268,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public <U> ExtendedFuture<U> thenApplyAsync(final Function<? super T, ? extends U> fn) {
+      Objects.requireNonNull(fn);
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
             return toExtendedFuture(super.thenApplyAsync(result -> interruptiblyApply(binding, result, fn)));
@@ -2260,6 +2279,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public <U> ExtendedFuture<U> thenApplyAsync(final Function<? super T, ? extends U> fn, final Executor executor) {
+      Objects.requireNonNull(fn);
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
             return toExtendedFuture(super.thenApplyAsync(result -> interruptiblyApply(binding, result, fn), executor));
@@ -2279,6 +2299,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @Override
    public <U, V> ExtendedFuture<V> thenCombine(final CompletionStage<? extends U> other,
          final BiFunction<? super T, ? super U, ? extends V> fn) {
+      // Validate before wrapping, which would hide a null callback from the JDK.
+      Objects.requireNonNull(fn);
       // The receiver owns the dependent in all three variants. Adapting other would add a completion step and copy its outcome.
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
@@ -2297,6 +2319,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @Override
    public <U, V> ExtendedFuture<V> thenCombineAsync(final CompletionStage<? extends U> other,
          final BiFunction<? super T, ? super U, ? extends V> fn) {
+      Objects.requireNonNull(fn);
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
             return withSecondPrecedingStage(super.thenCombineAsync(other, (result, otherResult) -> interruptiblyCombine(binding, result,
@@ -2309,6 +2332,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @Override
    public <U, V> ExtendedFuture<V> thenCombineAsync(final CompletionStage<? extends U> other,
          final BiFunction<? super T, ? super U, ? extends V> fn, final Executor executor) {
+      Objects.requireNonNull(fn);
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
             return withSecondPrecedingStage(super.thenCombineAsync(other, (result, otherResult) -> interruptiblyCombine(binding, result,
@@ -2389,6 +2413,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public ExtendedFuture<@Nullable Void> thenRun(final Runnable action) {
+      // Validate before wrapping, which would hide a null callback from the JDK.
+      Objects.requireNonNull(action);
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
             return toExtendedFuture(super.thenRun(() -> interruptiblyRun(binding, action)));
@@ -2403,6 +2429,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public ExtendedFuture<@Nullable Void> thenRunAsync(final Runnable action) {
+      Objects.requireNonNull(action);
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
             return toExtendedFuture(super.thenRunAsync(() -> interruptiblyRun(binding, action)));
@@ -2413,6 +2440,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public ExtendedFuture<@Nullable Void> thenRunAsync(final Runnable action, final Executor executor) {
+      Objects.requireNonNull(action);
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
             return toExtendedFuture(super.thenRunAsync(() -> interruptiblyRun(binding, action), executor));
@@ -2666,6 +2694,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public ExtendedFuture<T> whenComplete(final BiConsumer<? super @Nullable T, ? super @Nullable Throwable> action) {
+      // Validate before wrapping, which would hide a null callback from the JDK.
+      Objects.requireNonNull(action);
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
             return toExtendedFuture(super.whenComplete((result, ex) -> interruptiblyWhenComplete(binding, result, ex, action)));
@@ -2680,6 +2710,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
 
    @Override
    public ExtendedFuture<T> whenCompleteAsync(final BiConsumer<? super @Nullable T, ? super @Nullable Throwable> action) {
+      Objects.requireNonNull(action);
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
             return toExtendedFuture(super.whenCompleteAsync((result, ex) -> interruptiblyWhenComplete(binding, result, ex, action)));
@@ -2691,6 +2722,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
    @Override
    public ExtendedFuture<T> whenCompleteAsync(final BiConsumer<? super @Nullable T, ? super @Nullable Throwable> action,
          final Executor executor) {
+      Objects.requireNonNull(action);
       if (interruptibleStages) {
          try (var binding = ExecutionBinding.open(this)) {
             return toExtendedFuture(super.whenCompleteAsync((result, ex) -> interruptiblyWhenComplete(binding, result, ex, action),
