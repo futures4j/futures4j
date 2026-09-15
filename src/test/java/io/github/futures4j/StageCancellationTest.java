@@ -694,6 +694,11 @@ class StageCancellationTest extends AbstractFutureTest {
                            interrupted.set(true);
                         }
                      }
+                     // await may return normally when latch release races with interruption.
+                     // Consume a pending interrupt like the exception path, without discarding an earlier observation.
+                     if (Thread.interrupted()) {
+                        interrupted.set(true);
+                     }
                      return nested;
                   }, false, executor);
                   executor.execute(() -> source.complete("source"));
