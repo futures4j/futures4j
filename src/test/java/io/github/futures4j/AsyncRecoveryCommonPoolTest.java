@@ -21,7 +21,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * Verifies async recovery's native executor policy under low common-pool parallelism without changing the test runner's pool.
+ * Verifies recovery and static-factory executor policies under low common-pool parallelism without changing the test runner's pool.
  *
  * @author futures4j contributors
  */
@@ -86,6 +86,30 @@ class AsyncRecoveryCommonPoolTest {
                // Match pool identity (or neither using a pool), not thread identity: either policy may use different workers.
                assertThat(recoveryPool).as("recovery must match the native executor policy").isSameAs(expectedPool);
             }
+         }
+      }
+
+      for (final var factory : StaticAsyncFactoryTest.Factory.values()) {
+         final var worker = new AtomicReference<Thread>();
+         final var result = factory.start(() -> {
+            worker.set(Thread.currentThread());
+            return "value";
+         }, executor);
+         final boolean configured = factory.execution == StaticAsyncFactoryTest.Execution.CONFIGURED;
+         final boolean callerMustHelp = configured && expectedPool == null && "0".equals(System.getProperty(
+            "java.util.concurrent.ForkJoinPool.common.parallelism"));
+         if (callerMustHelp) {
+            // Older JDKs leave the explicitly configured pool disabled. Caller assistance proves it was not replaced by fallback threads.
+            assertThat(executor.awaitQuiescence(3, TimeUnit.SECONDS)).isTrue();
+         }
+         assertThat(result.get(3, TimeUnit.SECONDS)).isEqualTo(factory.supplying ? "value" : null);
+         final var factoryWorker = Objects.requireNonNull(worker.get());
+         if (callerMustHelp) {
+            assertThat(factoryWorker).as("configured disabled pool must retain caller-assisted execution").isSameAs(Thread.currentThread());
+         } else {
+            final var factoryPool = factoryWorker instanceof ForkJoinWorkerThread ? ((ForkJoinWorkerThread) factoryWorker).getPool() : null;
+            assertThat(factoryPool).as("factory must preserve explicit versus configured executor policy").isSameAs(configured ? executor
+                  : expectedPool);
          }
       }
    }

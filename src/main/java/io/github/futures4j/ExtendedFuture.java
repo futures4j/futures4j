@@ -814,7 +814,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     * @return an {@link ExtendedFuture} representing the asynchronous computation
     */
    public static ExtendedFuture<@Nullable Void> runAsync(final Runnable runnable) {
-      return completedFuture(null).thenRunAsync(runnable);
+      return runAsync(runnable, null, null);
    }
 
    /**
@@ -825,7 +825,17 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     * @return an {@link ExtendedFuture} representing the asynchronous computation
     */
    public static ExtendedFuture<@Nullable Void> runAsync(final Runnable runnable, final Executor executor) {
-      return completedFuture(null).thenRunAsync(runnable, executor);
+      return runAsync(runnable, Objects.requireNonNull(executor), null);
+   }
+
+   private static ExtendedFuture<@Nullable Void> runAsync(final Runnable runnable, final @Nullable Executor executor,
+         final @Nullable Executor defaultExecutor) {
+      // Validate before adaptation; the non-null supplier must not hide an invalid runnable until execution.
+      Objects.requireNonNull(runnable);
+      return submitAsync(() -> {
+         runnable.run();
+         return null;
+      }, executor, defaultExecutor);
    }
 
    /**
@@ -835,7 +845,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     * @return an {@link ExtendedFuture} representing the asynchronous computation
     */
    public static ExtendedFuture<@Nullable Void> runAsync(final ThrowingRunnable<?> runnable) {
-      return completedFuture(null).thenRunAsync(runnable);
+      // Select the standard overload while retaining ThrowingRunnable.run()'s existing exception adapter.
+      return runAsync((Runnable) runnable);
    }
 
    /**
@@ -846,7 +857,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     * @return an {@link ExtendedFuture} representing the asynchronous computation
     */
    public static ExtendedFuture<@Nullable Void> runAsync(final ThrowingRunnable<?> runnable, final Executor executor) {
-      return completedFuture(null).thenRunAsync(runnable, executor);
+      return runAsync((Runnable) runnable, executor);
    }
 
    /**
@@ -858,9 +869,25 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     */
    public static ExtendedFuture<@Nullable Void> runAsyncWithDefaultExecutor(final ThrowingRunnable<?> runnable,
          final Executor defaultExecutor) {
-      final var f = new ExtendedFuture<>(false, true, defaultExecutor);
-      f.complete(null);
-      return f.thenRunAsync(runnable);
+      return runAsync(runnable, null, defaultExecutor);
+   }
+
+   /** Submits an owned interruptible task without creating a completed source or a dependent-stage execution binding. */
+   private static <V> ExtendedFuture<V> submitAsync(final Supplier<V> supplier, final @Nullable Executor executor,
+         final @Nullable Executor defaultExecutor) {
+      final var future = new InterruptibleFuture<V>(false, true, defaultExecutor);
+      // At most one executor argument is non-null: a one-off executor must not become the descendants' default.
+      // Explicit common-pool execution needs the JDK's fallback; a configured default must instead be used unchanged.
+      final var executionExecutor = executor == null || executor == ForkJoinPool.commonPool() ? future.defaultExecutor() : executor;
+      // Inline executors can reenter an enclosing stage factory; this known-owner task must not consume its callback binding.
+      try (var ignored = ExecutionBinding.suspend()) {
+         future.completeAsync(supplier, executionExecutor);
+      } catch (final Throwable ex) { // CHECKSTYLE:IGNORE IllegalCatch
+         // Native completed-source stages encode submission failures, including CancellationException, instead of throwing them.
+         // The result is still private: submission failure wins even if the executor already ran the task inline before throwing.
+         future.obtrudeException(ex instanceof CompletionException ? ex : new CompletionException(ex));
+      }
+      return future;
    }
 
    /**
@@ -871,7 +898,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     * @return an {@link ExtendedFuture} representing the asynchronous computation
     */
    public static <V> ExtendedFuture<V> supplyAsync(final Supplier<V> supplier) {
-      return completedFuture(null).thenApplyAsync(unused -> supplier.get());
+      return supplyAsync(supplier, null, null);
    }
 
    /**
@@ -883,7 +910,16 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     * @return an {@link ExtendedFuture} representing the asynchronous computation
     */
    public static <V> ExtendedFuture<V> supplyAsync(final Supplier<V> supplier, final Executor executor) {
-      return completedFuture(null).thenApplyAsync(unused -> supplier.get(), executor);
+      return supplyAsync(supplier, Objects.requireNonNull(executor), null);
+   }
+
+   private static <V> ExtendedFuture<V> supplyAsync(final Supplier<V> supplier, final @Nullable Executor executor,
+         final @Nullable Executor defaultExecutor) {
+      Objects.requireNonNull(supplier);
+      // Even the standard Supplier overload previously used a ThrowingFunction adapter, which wraps Error in RuntimeException.
+      // Keep that policy separate from runAsync(Runnable), whose raw Errors must remain unchanged.
+      final ThrowingSupplier<V, ?> task = supplier::get;
+      return submitAsync(task, executor, defaultExecutor);
    }
 
    /**
@@ -894,7 +930,8 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     * @return an {@link ExtendedFuture} representing the asynchronous computation
     */
    public static <V> ExtendedFuture<V> supplyAsync(final ThrowingSupplier<V, ?> supplier) {
-      return completedFuture(null).thenApplyAsync(unused -> supplier.get());
+      // The cast avoids recursive overload selection without bypassing the supplier's get() adapter.
+      return supplyAsync((Supplier<V>) supplier);
    }
 
    /**
@@ -906,7 +943,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     * @return an {@link ExtendedFuture} representing the asynchronous computation
     */
    public static <V> ExtendedFuture<V> supplyAsync(final ThrowingSupplier<V, ?> supplier, final Executor executor) {
-      return completedFuture(null).thenApplyAsync(unused -> supplier.get(), executor);
+      return supplyAsync((Supplier<V>) supplier, executor);
    }
 
    /**
@@ -919,9 +956,7 @@ public class ExtendedFuture<T> extends CompletableFuture<T> {
     */
    public static <V> ExtendedFuture<V> supplyAsyncWithDefaultExecutor(final ThrowingSupplier<V, ?> supplier,
          final Executor defaultExecutor) {
-      final var f = new ExtendedFuture<>(false, true, defaultExecutor);
-      f.complete(null);
-      return f.thenApplyAsync(unused -> supplier.get());
+      return supplyAsync(supplier, null, defaultExecutor);
    }
 
    protected final Collection<Future<?>> cancellablePrecedingStages;
