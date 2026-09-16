@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [1.1.4] 2026-09-16
+
 ### Fixed
 
 #### `ExtendedFuture`
@@ -19,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Preserve input outcomes and avoid unnecessary wrappers in `thenCombine`, `thenAcceptBoth`, and `runAfterBoth`.
 - Keep view outcomes consistent after forced completion through a view, and honor its configured executor in `completeAsync`.
 - Release unused stage references and reduce per-future memory, callback-tracking, and async-factory allocation overhead.
+
+#### `Futures.FlatteningCombiner`
+
+- Correct nullability annotations in `toList`, `toSet`, and `toStream` to reflect nullable results from input futures.
 
 
 ## [1.1.3] 2025-10-11
